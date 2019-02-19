@@ -9,42 +9,6 @@
 #include <ctime>
 using namespace std;
 
-
-struct game_player {
-public:
-	string name;
-	int bonus;
-	long gold;
-	bool isLiving=true;
-	int rloc;
-};
-
-struct game_monster {
-	string name;
-	string description;
-	bool isLiving=true;
-	int difficulty;
-};
-
-struct game_room {
-	bool hasTraps, hasMonster, hasRelic, beenVisited;
-	string name, description;
-	game_monster monster;
-
-	game_room() {
-		name = description = "";
-		hasTraps = hasMonster = hasRelic = beenVisited = false;
-	}
-
-	game_room(string name, string description, bool hasTraps, bool hasMonster, bool hasRelic) {
-		this->name = name;
-		this->description = description;
-		this->hasTraps = hasTraps;
-		this->hasMonster = hasMonster;
-		this->hasRelic = hasRelic;
-	}
-};
-
 enum game_commands {
 	COMMAND_UNKNOWN = 0,
 	COMMAND_CONTINUE,
@@ -54,6 +18,21 @@ enum game_commands {
 	COMMAND_DODGE,
 	COMMAND_RUN,
 	COMMAND_ESCAPE
+};
+
+enum game_monsters {
+	MONSTER_NONE = -10,
+	MONSTER_GREEN_GOBLIN = -5,
+	MONSTER_SMALL_SKELETON,
+	MONSTER_RED_GOBLIN,
+	MONSTER_KOBOLD,
+	MONSTER_SKELETON,
+	MONSTER_GNOLL,
+	MONSTER_ORC,
+	MONSTER_PURPLE_GOBLIN,
+	MONSTER_LARGE_SKELETON,
+	MONSTER_BUGBEAR,
+	MONSTER_OGRE
 };
 
 enum game_locations {
@@ -83,9 +62,43 @@ enum game_locations {
 	YELLOW_4,
 	YELLOW_5,
 	YELLOW_EXIT,
-	BOSS_ENTRY, 
+	BOSS_ENTRY,
 	BOSS,
 	EXIT
+};
+
+
+struct game_player {
+public:
+	string name;
+	int bonus;
+	long gold;
+	bool isLiving=true;
+	int rloc;
+};
+
+struct game_monster {
+	string name, description, describer;
+	bool isLiving=false;
+	int difficulty=MONSTER_NONE;
+};
+
+struct game_room {
+	bool hasTraps, hasRelic, beenVisited;
+	string name, description, describer;
+	game_monster monster;
+
+	game_room() {
+		name = description = "";
+		hasTraps = hasRelic = beenVisited = false;
+	}
+
+	game_room(string name, string description, bool hasTraps, bool hasRelic) {
+		this->name = name;
+		this->description = description;
+		this->hasTraps = hasTraps;
+		this->hasRelic = hasRelic;
+	}
 };
 
 vector<string> delimit(const string &, char);
@@ -152,15 +165,16 @@ int main()
 		}
 	}
 	delete [] rooms;
+	delete player;
 }
 
 void doFight() {
 	game_room *r = &rooms[player->rloc];
 	game_monster *m = &r->monster;
-	if(r->hasMonster && !m->isLiving) {
-		cout << "But the " + m->name + "is already dead!";
-	} else if (!r->hasMonster) {
-		cout << "But there is nothing here!";
+	if(m->name.c_str() != nullptr && !m->isLiving) {
+		cout << "But the " + m->name + " is already dead!" << endl;
+	} else if (!m->isLiving) {
+		cout << "There is nothing to fight!" << endl;
 	} else {
 		int pHit = d20(player->bonus);
 		int mHit = d20(m->difficulty);
@@ -175,20 +189,45 @@ void doFight() {
 	}
 };
 
+void doDodge() {
+	game_room *r = &rooms[player->rloc];
+	game_monster *m = &r->monster;
+	if (r->hasTraps && m->isLiving && m->isLiving) {
+		cout << "You attempt to dodge through the traps with the " + m->name + "in pursuit!" << endl;
+	} else if (r->hasTraps && !m->isLiving) {
+		cout << "You attempt to dodge through the traps!" << endl;
+	} else {
+		int pHit = d20(player->bonus);
+		int mHit = d20(m->difficulty);
+		if (pHit >= mHit) {
+			cout << "The " + m->name + " crumbles to the ground lifelessly." << endl;
+			m->isLiving = false;
+		} else if (mHit > pHit) {
+			cout << "The " + m->name + " lands a mighty blow that sends to ground." << endl;
+			player->isLiving = false;
+		}
+
+	}
+};
+
 void doContinue() {
 	game_room *r = &rooms[player->rloc];
-	if(r->hasMonster && r->monster.isLiving) {
+	game_player *p = player;
+	game_monster *m = &r->monster;
+	if(m->isLiving) {
 		cout << "You can't leave until you've vanquished the " + r->monster.name + "!";
 	} else if(r->hasTraps) {
 		cout << "The room is trapped! Are you trying to die?";
 	} else {
 		r->beenVisited = true;
-		player->rloc++;
+		if(p->rloc == RED_EXIT || p->rloc == GREEN_EXIT || p->rloc == BLUE_EXIT || p->rloc == YELLOW_EXIT) p->rloc = HALLWAY;
+		else p->rloc++;
 		r = &rooms[player->rloc];
+		m = &r->monster;
 		cout << "You continue on into the next area..." << endl;
 		cout << r->name << endl;
 		cout << r->description << endl;
-		if (r->hasMonster) {
+		if (m->isLiving) {
 			cout << "You spot an enemy!" << endl;
 		} else if (r->hasTraps) {
 			cout << "You spot some traps!" << endl;
@@ -228,6 +267,8 @@ int determineAction(vector<string> input) {
 		cid = COMMAND_RUN;
 	} else if (isMatch("escape", cmd)) {
 		cid = COMMAND_ESCAPE;
+	} else if (isMatch("dodge", cmd)) {
+		cid = COMMAND_DODGE;
 	} else if (isMatch("continue", cmd)) {
 		cid = COMMAND_CONTINUE;
 	} else {
@@ -246,10 +287,64 @@ bool isMatch(string src, string text) {
 void initRooms() {
 	rooms = new game_room[GAME_ROOM_SIZE];
 	for(int i=0;i < GAME_ROOM_SIZE; i++) {
+		game_room *r = &rooms[i];
 		if(i != ENTRY && i != HALLWAY && i != RED_EXIT && i != GREEN_EXIT && i != BLUE_EXIT && i != YELLOW_EXIT && i != BOSS_ENTRY && i != EXIT) {
-			rooms[i].hasTraps = rand() % 2;
-			rooms[i].hasMonster = rand() % 2;
-			rooms[i].hasRelic = rand() % 2;
+			r->hasTraps = rand() % 2;
+			r->hasRelic = rand() % 2;
+			if(rand() % 2) {
+				int newMob = (rand() % 10) - 5;
+				game_monster *m = &r->monster;
+				m->difficulty = newMob;
+				m->isLiving = true;
+				switch(newMob) {
+					case MONSTER_GREEN_GOBLIN:
+						m->name = "goblin";
+						m->describer = "small green goblin";
+					break;
+					case MONSTER_RED_GOBLIN:
+						m->name = "goblin";
+						m->describer = "red goblin";
+					break;
+					case MONSTER_PURPLE_GOBLIN:
+						m->name = "goblin";
+						m->describer = "large purple goblin";
+					break;
+					case MONSTER_SMALL_SKELETON:
+						m->name = "skeleton";
+						m->describer = "small skeleton";
+					break;
+					case MONSTER_KOBOLD:
+						m->name = "kobold";
+						m->describer = "vicious kobold";
+					break;
+					case MONSTER_SKELETON:
+						m->name = "skeleton";
+						m->describer = "bleached skeleton";
+					break;
+					case MONSTER_GNOLL:
+						m->name = "gnoll";
+						m->describer = "large gnoll";
+					break;
+					case MONSTER_ORC:
+						m->name = "orc";
+						m->describer = "nasty orc";
+					break;
+					case MONSTER_LARGE_SKELETON:
+						m->name = "skeleton";
+						m->describer = "giant skeleton";
+					break;
+					case MONSTER_BUGBEAR:
+						m->name = "bugbear";
+						m->describer = "greasy-looking bugbear";
+					break;
+					case MONSTER_OGRE:
+						m->name = "ogre";
+						m->describer = "massive ogre";
+					break;
+					default:
+						cout << "Unknown critter type: " << newMob << endl;
+				}
+			}
 		}
 	}
 	// neutral rooms
