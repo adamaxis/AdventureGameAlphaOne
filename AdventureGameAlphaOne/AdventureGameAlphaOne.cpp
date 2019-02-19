@@ -107,15 +107,17 @@ int determineAction(vector<string>);
 vector<string> getInput();
 void doContinue();
 void doFight();
+void doDodge();
+void doLook();
 void initRooms();
 int d20(int);
 
-template<class T>
+/*template<class T>
 void find(string s, T & object) {
 	if(object.cmd != 1) {
 		cout << "Not equal to 1";
 	}
-};
+};*/
 
 
 const int GAME_ROOM_SIZE = EXIT+1;
@@ -153,6 +155,9 @@ int main()
 				case COMMAND_FIGHT:
 					doFight();
 					break;
+				case COMMAND_DODGE:
+					doDodge();
+					break;
 				case COMMAND_RUN:
 					break;
 				case COMMAND_ESCAPE:
@@ -171,10 +176,10 @@ int main()
 void doFight() {
 	game_room *r = &rooms[player->rloc];
 	game_monster *m = &r->monster;
-	if(m->name.c_str() != nullptr && !m->isLiving) {
-		cout << "But the " + m->name + " is already dead!" << endl;
-	} else if (!m->isLiving) {
+	if (m->difficulty == MONSTER_NONE) {
 		cout << "There is nothing to fight!" << endl;
+	} else if(!m->isLiving) {
+		cout << "But the " + m->name + " is already dead!" << endl;
 	} else {
 		int pHit = d20(player->bonus);
 		int mHit = d20(m->difficulty);
@@ -182,7 +187,7 @@ void doFight() {
 			cout << "The " + m->name + " crumbles to the ground lifelessly." << endl;
 			m->isLiving = false;
 		} else if(mHit > pHit) {
-			cout << "The " + m->name + " lands a mighty blow that sends to ground." << endl;
+			cout << "The " + m->name + " lands a mighty blow that sends you flying!" << endl;
 			player->isLiving = false;
 		}
 
@@ -192,21 +197,23 @@ void doFight() {
 void doDodge() {
 	game_room *r = &rooms[player->rloc];
 	game_monster *m = &r->monster;
-	if (r->hasTraps && m->isLiving && m->isLiving) {
-		cout << "You attempt to dodge through the traps with the " + m->name + "in pursuit!" << endl;
-	} else if (r->hasTraps && !m->isLiving) {
-		cout << "You attempt to dodge through the traps!" << endl;
-	} else {
-		int pHit = d20(player->bonus);
-		int mHit = d20(m->difficulty);
-		if (pHit >= mHit) {
+	if (r->hasTraps) {
+		if(m->difficulty != MONSTER_NONE && m->isLiving) {
+			cout << "You attempt to dodge through the traps with the " + m->name + "in hot pursuit!" << endl;
+		} else {
+			cout << "You attempt to dodge through the traps!" << endl;
+		}
+		int pSuccess = d20(player->bonus);
+		int mSuccess = d20(m->difficulty);
+		if (pSuccess >= mSuccess) {
 			cout << "The " + m->name + " crumbles to the ground lifelessly." << endl;
 			m->isLiving = false;
-		} else if (mHit > pHit) {
-			cout << "The " + m->name + " lands a mighty blow that sends to ground." << endl;
+		} else if (mSuccess > pSuccess) {
+			cout << "The " + m->name + " lands a mighty blow that sends you flying!" << endl;
 			player->isLiving = false;
 		}
-
+	} else {
+		cout << "But there are no traps!" << endl;
 	}
 };
 
@@ -225,8 +232,6 @@ void doContinue() {
 		r = &rooms[player->rloc];
 		m = &r->monster;
 		cout << "You continue on into the next area..." << endl;
-		cout << r->name << endl;
-		cout << r->description << endl;
 		if (m->isLiving) {
 			cout << "You spot an enemy!" << endl;
 		} else if (r->hasTraps) {
@@ -235,6 +240,19 @@ void doContinue() {
 	}
 };
 
+void doLook() {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	game_monster *m = &r->monster;
+	cout << r->name << endl;
+	cout << r->description << endl;
+	if (m->isLiving && m->difficulty != MONSTER_NONE) {
+		cout << "You spot a " << m->describer << "!" << endl;
+	}
+	if (r->hasTraps) {
+		cout << "You spot some traps!" << endl;
+	}
+}
 
 vector<string> getInput() {
 	string input;
