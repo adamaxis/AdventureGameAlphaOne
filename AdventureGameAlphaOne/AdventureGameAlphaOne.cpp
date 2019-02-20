@@ -9,17 +9,36 @@
 #include <ctime>
 using namespace std;
 
+// states for game status
+enum game_states {
+	STATE_EXIT=0,
+	STATE_MENU,
+	STATE_INIT,
+	STATE_PLAYING,
+	STATE_GAMEOVER
+};
+
+// states for main menu
+enum menu_states {
+	MENU_HISCORES=1,
+	MENU_PLAY,
+	MENU_EXIT
+};
+
+// states for commands entered
 enum game_commands {
 	COMMAND_UNKNOWN = 0,
 	COMMAND_CONTINUE,
 	COMMAND_FIGHT,
 	COMMAND_SEARCH,
 	COMMAND_GO,
+	COMMAND_LOOK,
 	COMMAND_DODGE,
 	COMMAND_RUN,
 	COMMAND_ESCAPE
 };
 
+// states for different types of monsters, organized by difficult(-5 to 5) -10 for not_a_monster and 10 for final boss
 enum game_monsters {
 	MONSTER_NONE = -10,
 	MONSTER_GREEN_GOBLIN = -5,
@@ -32,11 +51,16 @@ enum game_monsters {
 	MONSTER_PURPLE_GOBLIN,
 	MONSTER_LARGE_SKELETON,
 	MONSTER_BUGBEAR,
-	MONSTER_OGRE
+	MONSTER_OGRE,
+	MONSTER_TROLL_KING=10
 };
 
+// tags for different rooms, each corresponding to a room within the room array
 enum game_locations {
-	ENTRY = 0,
+	FOREST = 0,
+	FOREST_2,
+	FOREST_3,
+	ENTRY,
 	HALLWAY,
 	RED_1,
 	RED_2,
@@ -67,7 +91,7 @@ enum game_locations {
 	EXIT
 };
 
-
+// player struct - self explanatory
 struct game_player {
 public:
 	string name;
@@ -77,12 +101,14 @@ public:
 	int rloc;
 };
 
+// monster struct, for fleshing out monsters
 struct game_monster {
 	string name, description, describer;
 	bool isLiving=false;
 	int difficulty=MONSTER_NONE;
 };
 
+// room struct, for fleshing out rooms and their attributes
 struct game_room {
 	bool hasTraps, hasRelic, beenVisited;
 	string name, description, describer;
@@ -101,16 +127,24 @@ struct game_room {
 	}
 };
 
+
+// function prototypes
 vector<string> delimit(const string &, char);
 bool isMatch(string, string);
 int determineAction(vector<string>);
 vector<string> getInput();
+bool isOpeningRoom(int);
+bool isNeutralRoom(int);
+void initRooms();
+int d20(int);
+
+// action function prototypes
 void doContinue();
 void doFight();
 void doDodge();
 void doLook();
-void initRooms();
-int d20(int);
+void doRun();
+
 
 /*template<class T>
 void find(string s, T & object) {
@@ -120,69 +154,130 @@ void find(string s, T & object) {
 };*/
 
 
+// constant for rooms array
 const int GAME_ROOM_SIZE = EXIT+1;
 
-int gameState;
-
+// globals
 game_player *player;
 game_room *rooms;
-
+int gameState;
 
 int main()
 {
+	// initialize randomizer
 	srand(time(0));
-	player = new game_player();
-	initRooms();
 
-	gameState = 1;
+	// initialize program variables
+	int choice, action=0;
 	string input;
-	while(gameState!=0) {
-		if (!player->isLiving) {
-			cout << "You have died!" << endl;
-			gameState = 0;
-			continue;
-		}
-		vector<string> input = getInput();
-		int action = determineAction(input);
-		// identify target
-		if (action && player->isLiving) {
-			switch (action) {
-				case COMMAND_CONTINUE:
-					doContinue();
-					break;
-				case COMMAND_GO:
-					break;
-				case COMMAND_FIGHT:
-					doFight();
-					break;
-				case COMMAND_DODGE:
-					doDodge();
-					break;
-				case COMMAND_RUN:
-					break;
-				case COMMAND_ESCAPE:
-					break;
-				case COMMAND_UNKNOWN:
-					break;
-				default:
-					break;
-			}
+	vector<string> command;
+
+	// main game loop
+	gameState = STATE_MENU;
+	while(gameState!=STATE_EXIT) {
+		switch(gameState) {
+			// main menu
+			case STATE_MENU:
+				cout << "Please enter a choice:" << endl;
+				cout << "1: Show high-scores" << endl;
+				cout << "2: Play game" << endl;
+				cout << "3: Exit" << endl;
+				command = getInput();
+				choice = atoi(command[0].c_str());
+				if(choice) {
+					switch(choice) {
+						case MENU_HISCORES:
+							cout << "High scores not implemented yet... sorry" << endl;
+						break;
+						case MENU_PLAY:
+							cout << "Game initializing..." << endl;
+							gameState = STATE_INIT;
+						break;
+						case MENU_EXIT:
+							cout << "Thank you for playing dungeon delve!" << endl;
+							gameState = STATE_EXIT;
+						break;
+						default:
+							cout << "Invalid choice." << endl;
+						break;
+					}
+				}
+			break;
+			// initialize game - this is an intermediary state
+			case STATE_INIT:
+				player = new game_player();
+				initRooms();
+
+				// show first room
+				doLook();
+				gameState = STATE_PLAYING;
+			break;
+			// game is running
+			case STATE_PLAYING:
+				if (!player->isLiving) {
+					// death is handled here
+					cout << "You have died!" << endl;
+					gameState = STATE_GAMEOVER;
+					continue;
+				}
+				command = getInput();
+				action = determineAction(command);
+				// identify target
+				if (action && player->isLiving) {
+					switch (action) {
+						case COMMAND_CONTINUE:
+							doContinue();
+						break;
+						case COMMAND_GO:
+						break;
+						case COMMAND_LOOK:
+							doLook();
+						break;
+						case COMMAND_FIGHT:
+							doFight();
+						break;
+						case COMMAND_DODGE:
+							doDodge();
+						break;
+						case COMMAND_RUN:
+							doRun();
+						break;
+						case COMMAND_ESCAPE:
+						break;
+						case COMMAND_UNKNOWN:
+						break;
+						default:
+						break;
+					}
+				}
+			break;
+			// player died
+			case STATE_GAMEOVER:
+				// cleanup
+				delete[] rooms;
+				delete player;
+				gameState = STATE_MENU;
+			break;
 		}
 	}
-	delete [] rooms;
-	delete player;
 }
 
+// doFight() - do combat between player and monster
 void doFight() {
-	game_room *r = &rooms[player->rloc];
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
-	if (m->difficulty == MONSTER_NONE) {
+	if (isOpeningRoom(p->rloc)) {
+		cout << "Fight? Fight the urge to fight and just RUN!" << endl;
+	} else if (m->difficulty == MONSTER_NONE) {
 		cout << "There is nothing to fight!" << endl;
 	} else if(!m->isLiving) {
 		cout << "But the " + m->name + " is already dead!" << endl;
 	} else {
 		int pHit = d20(player->bonus);
 		int mHit = d20(m->difficulty);
+		cout << "You rolled: " << pHit << endl;
+		cout << m->name << " rolled: " << mHit << endl;
 		if(pHit >= mHit) {
 			cout << "The " + m->name + " crumbles to the ground lifelessly." << endl;
 			m->isLiving = false;
@@ -194,22 +289,28 @@ void doFight() {
 	}
 };
 
+// doDodge() 
 void doDodge() {
-	game_room *r = &rooms[player->rloc];
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
-	if (r->hasTraps) {
+	if (isOpeningRoom(p->rloc)) {
+		cout << "There's no time to look for traps.... just RUN!" << endl;
+	} else if (r->hasTraps) {
 		if(m->difficulty != MONSTER_NONE && m->isLiving) {
 			cout << "You attempt to dodge through the traps with the " + m->name + "in hot pursuit!" << endl;
 		} else {
 			cout << "You attempt to dodge through the traps!" << endl;
 		}
 		int pSuccess = d20(player->bonus);
-		int mSuccess = d20(m->difficulty);
+		int mSuccess = d20(0);
+		cout << "You rolled: " << pSuccess << endl;
+		cout << "Trap rolled: " << mSuccess << endl;
 		if (pSuccess >= mSuccess) {
-			cout << "The " + m->name + " crumbles to the ground lifelessly." << endl;
-			m->isLiving = false;
+			cout << "You safely manuever through the trap!" << endl;
+			r->hasTraps= false;
 		} else if (mSuccess > pSuccess) {
-			cout << "The " + m->name + " lands a mighty blow that sends you flying!" << endl;
+			cout << "You failed to dodge the trap!" << endl;
 			player->isLiving = false;
 		}
 	} else {
@@ -221,7 +322,9 @@ void doContinue() {
 	game_room *r = &rooms[player->rloc];
 	game_player *p = player;
 	game_monster *m = &r->monster;
-	if(m->isLiving) {
+	if(isOpeningRoom(p->rloc)) {
+		cout << "There's no time for walking... RUN!" << endl;
+	} else if(m->isLiving) {
 		cout << "You can't leave until you've vanquished the " + r->monster.name + "!";
 	} else if(r->hasTraps) {
 		cout << "The room is trapped! Are you trying to die?";
@@ -246,13 +349,30 @@ void doLook() {
 	game_monster *m = &r->monster;
 	cout << r->name << endl;
 	cout << r->description << endl;
-	if (m->isLiving && m->difficulty != MONSTER_NONE) {
-		cout << "You spot a " << m->describer << "!" << endl;
-	}
-	if (r->hasTraps) {
-		cout << "You spot some traps!" << endl;
+	if (isOpeningRoom(p->rloc)) {
+		cout << "It's all a blur.... keep RUNNING!" << endl;
+	} else {
+			if (m->isLiving && m->difficulty != MONSTER_NONE) {
+			cout << "You spot a " << m->describer << "!" << endl;
+		}
+		if (r->hasTraps) {
+			cout << "You spot some traps!" << endl;
+		}
 	}
 }
+
+void doRun() {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	game_monster *m = &r->monster;
+	if(isOpeningRoom(p->rloc)) {
+		p->rloc++;
+		doLook();
+	} else {
+		cout << "RUN not implemented here yet" << endl;
+	}
+}
+
 
 vector<string> getInput() {
 	string input;
@@ -289,6 +409,8 @@ int determineAction(vector<string> input) {
 		cid = COMMAND_DODGE;
 	} else if (isMatch("continue", cmd)) {
 		cid = COMMAND_CONTINUE;
+	} else if (isMatch("look", cmd)) {
+		cid = COMMAND_LOOK;
 	} else {
 		cout << "Unknown command";
 		cid = COMMAND_UNKNOWN;
@@ -302,11 +424,24 @@ bool isMatch(string src, string text) {
 	return false;
 };
 
+bool isNeutralRoom(int r) {
+	if (r == FOREST || r == FOREST_2 || r == FOREST_3 || r == ENTRY || r == HALLWAY || \
+		r == RED_EXIT || r == GREEN_EXIT || r == BLUE_EXIT || r == YELLOW_EXIT || \
+		r == BOSS_ENTRY || r == EXIT) return true;
+	return false;
+}
+
+bool isOpeningRoom(int r) {
+	if (r == FOREST || r == FOREST_2 || r == FOREST_3) return true;
+	return false;
+}
+
+
 void initRooms() {
 	rooms = new game_room[GAME_ROOM_SIZE];
 	for(int i=0;i < GAME_ROOM_SIZE; i++) {
 		game_room *r = &rooms[i];
-		if(i != ENTRY && i != HALLWAY && i != RED_EXIT && i != GREEN_EXIT && i != BLUE_EXIT && i != YELLOW_EXIT && i != BOSS_ENTRY && i != EXIT) {
+		if(!isNeutralRoom(i)) {
 			r->hasTraps = rand() % 2;
 			r->hasRelic = rand() % 2;
 			if(rand() % 2) {
@@ -366,19 +501,30 @@ void initRooms() {
 		}
 	}
 	// neutral rooms
+	rooms[FOREST].name = "[Running through the forest]";
+	rooms[FOREST].description = "In the distance, you hear a faint siren echoing through the trees, and footsteps getting louder.\
+	\nThe trolls are after you. You barely managed to slip out alive after they knocked your door down, but they were in fast pursuit\
+	As you escaped your village, they had already slain the chief and were rounding people up. Anyone who tried to run was killed, but\
+	you got a head-start. Your only hope now is that your feet rumble faster than their bellies.";
+	rooms[FOREST_2].description = "Placeholder text for forest running";
+	rooms[FOREST_3].description = "Placeholder text for forest running";
+	rooms[ENTRY].name = "[Placeholder entry name]";
+	rooms[ENTRY].description = "Placeholder text here for entry";
 	rooms[HALLWAY].name = "Corridor, Chamber";
+	rooms[HALLWAY].name = "Placeholder text for colored-door corridor";
 	rooms[RED_EXIT].name = "Red Door, Narrow Passage";
 	rooms[RED_EXIT].description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-	rooms[GREEN_EXIT].name = "Green Corridor, Narrow Passage";
+	rooms[GREEN_EXIT].name = "Green Door, Narrow Passage";
 	rooms[GREEN_EXIT].description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-	rooms[BLUE_EXIT].name = "Blue Corridor, Narrow Passage";
+	rooms[BLUE_EXIT].name = "Blue Door, Narrow Passage";
 	rooms[BLUE_EXIT].description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-	rooms[YELLOW_EXIT].name = "Yellow Corridor, Narrow Passage";
+	rooms[YELLOW_EXIT].name = "Yellow Door, Narrow Passage";
 	rooms[YELLOW_EXIT].description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
 
-	// populated rooms
+	// populated rooms - TODO
 };
 
+// d20 function - returns a roll from 1 to 20, +/- bias
 int d20(int bias) {
 	int roll = rand() % 20 + 1;
 	roll += bias;
