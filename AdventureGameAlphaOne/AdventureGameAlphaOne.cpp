@@ -52,7 +52,8 @@ enum game_monsters {
 	MONSTER_LARGE_SKELETON,
 	MONSTER_BUGBEAR,
 	MONSTER_OGRE,
-	MONSTER_TROLL_KING=10
+	MONSTER_TROLL_KING=10,
+	MONSTER_RANDOM
 };
 
 // tags for different rooms, each corresponding to a room within the room array
@@ -91,41 +92,31 @@ enum game_locations {
 	EXIT
 };
 
-// player struct - self explanatory
-struct game_player {
-public:
+enum game_traps {
+	TRAP_NONE = 0,
+	TRAP_NORMAL
+};
+
+enum game_items {
+	ITEM_FIST = -10,
+	ITEM_NONE = 0,
+	ITEM_RED_KEY,
+	ITEM_BLUE_KEY,
+	ITEM_YELLOW_KEY,
+	ITEM_GREEN_KEY,
+	ITEM_ARMOR_1,
+	ITEM_SWORD_1
+};
+
+
+struct game_item {
 	string name;
-	int bonus;
-	long gold;
-	bool isLiving=true;
-	int rloc;
+	string describer;
+	string description;
+	int type = ITEM_NONE;
 };
 
-// monster struct, for fleshing out monsters
-struct game_monster {
-	string name, description, describer;
-	bool isLiving=false;
-	int difficulty=MONSTER_NONE;
-};
-
-// room struct, for fleshing out rooms and their attributes
-struct game_room {
-	bool hasTraps, hasRelic, beenVisited;
-	string name, description, describer;
-	game_monster monster;
-
-	game_room() {
-		name = description = "";
-		hasTraps = hasRelic = beenVisited = false;
-	}
-
-	game_room(string name, string description, bool hasTraps, bool hasRelic) {
-		this->name = name;
-		this->description = description;
-		this->hasTraps = hasTraps;
-		this->hasRelic = hasRelic;
-	}
-};
+game_item createItem(int);
 
 
 // function prototypes
@@ -147,13 +138,81 @@ void doLook();
 void doRun();
 
 
-/*template<class T>
-void find(string s, T & object) {
-	if(object.cmd != 1) {
-		cout << "Not equal to 1";
-	}
-};*/
 
+
+// player struct - self explanatory
+struct game_player {
+public:
+	string name;
+	int bonus;
+	long gold;
+	int HP;
+	int rloc;
+	game_item weapon;
+
+	game_player() {
+		bonus = 5;
+		gold = 0;
+		rloc = FOREST;
+		weapon = createItem(ITEM_FIST);
+		HP = 3;
+	}
+
+};
+
+// monster struct, for fleshing out monsters
+struct game_monster {
+	string name, description, describer;
+	int HP;
+	game_item weapon;
+	int difficulty;
+
+	game_monster() {
+		difficulty = MONSTER_NONE;
+		HP = 0;
+		weapon = createItem(ITEM_FIST);
+	}
+};
+
+game_monster createMonster(int = MONSTER_NONE);
+
+struct game_trap {
+	string name, description, describer;
+	bool isArmed = false;
+	int difficulty = TRAP_NONE;
+};
+
+// room struct, for fleshing out rooms and their attributes
+struct game_room {
+	bool hasRelic, beenVisited;
+	string name, description, describer;
+	game_monster monster;
+	vector<game_items> items;
+	game_trap trap;
+
+	game_room() {
+		name = description = "";
+		hasRelic = beenVisited = false;
+	}
+
+	game_room(string name, string description, bool hasRelic) {
+		this->name = name;
+		this->description = description;
+		this->hasRelic = hasRelic;
+	}
+};
+
+// custom type functions
+
+template<class T>
+string getWeapon(T & entity) {
+	return entity->weapon.name;
+};
+
+template<class T>
+bool isLiving(T & entity) {
+	return (entity->HP > 0);
+};
 
 // constant for rooms array
 const int GAME_ROOM_SIZE = EXIT+1;
@@ -223,7 +282,7 @@ int main()
 			break;
 			// game is running
 			case STATE_PLAYING:
-				if (!player->isLiving) {
+				if (!isLiving(player)) {
 					// death is handled here
 					cout << "You have died!" << endl;
 					gameState = STATE_GAMEOVER;
@@ -232,7 +291,7 @@ int main()
 				command = getInput();
 				action = determineAction(command);
 				// identify target
-				if (action && player->isLiving) {
+				if (action && player->HP) {
 					switch (action) {
 						case COMMAND_CONTINUE:
 							doContinue();
@@ -280,7 +339,7 @@ void doFight() {
 		cout << "Fight? Fight the urge to fight and just RUN!" << endl;
 	} else if (m->difficulty == MONSTER_NONE) {
 		cout << "There is nothing to fight!" << endl;
-	} else if(!m->isLiving) {
+	} else if(!isLiving(m)) {
 		cout << "But the " + m->name + " is already dead!" << endl;
 	} else {
 		int pHit = d20(player->bonus);
@@ -288,11 +347,14 @@ void doFight() {
 		cout << "You rolled: " << pHit << endl;
 		cout << m->name << " rolled: " << mHit << endl;
 		if(pHit >= mHit) {
-			cout << "The " + m->name + " crumbles to the ground lifelessly." << endl;
-			m->isLiving = false;
+			cout << "You out-fox the " + m->name + " and land a solid blow with your " << getWeapon(p) << "!";
+			m->HP--;
+			if(m->HP <= 0) {
+				cout << "The " + m->name + " crumbles to the ground lifelessly." << endl;
+			}
 		} else if(mHit > pHit) {
-			cout << "The " + m->name + " lands a mighty blow that sends you flying!" << endl;
-			player->isLiving = false;
+			cout << "The " + m->name + " slips into flanking position and lands a mighty blow with its " << getWeapon(m) << " that sends you flying!" << endl;
+			player->HP--;
 		}
 
 	}
@@ -303,10 +365,11 @@ void doDodge() {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
 	if (isOpeningRoom(p->rloc)) {
 		cout << "There's no time to look for traps.... just RUN!" << endl;
-	} else if (r->hasTraps) {
-		if(m->difficulty != MONSTER_NONE && m->isLiving) {
+	} else if (t->isArmed) {
+		if(m->difficulty != MONSTER_NONE && isLiving(m)) {
 			cout << "You attempt to dodge through the traps with the " + m->name + "in hot pursuit!" << endl;
 		} else {
 			cout << "You attempt to dodge through the traps!" << endl;
@@ -317,10 +380,10 @@ void doDodge() {
 		cout << "Trap rolled: " << mSuccess << endl;
 		if (pSuccess >= mSuccess) {
 			cout << "You safely manuever through the trap!" << endl;
-			r->hasTraps= false;
+			t->isArmed = false;
 		} else if (mSuccess > pSuccess) {
 			cout << "You failed to dodge the trap!" << endl;
-			player->isLiving = false;
+			player->HP--;
 		}
 	} else {
 		cout << "But there are no traps!" << endl;
@@ -331,11 +394,12 @@ void doContinue() {
 	game_room *r = &rooms[player->rloc];
 	game_player *p = player;
 	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
 	if(isOpeningRoom(p->rloc)) {
 		cout << "There's no time for walking... RUN!" << endl;
-	} else if(m->isLiving) {
+	} else if(isLiving(m)) {
 		cout << "You can't leave until you've vanquished the " + r->monster.name + "!";
-	} else if(r->hasTraps) {
+	} else if(t->isArmed) {
 		cout << "The room is trapped! Are you trying to die?";
 	} else {
 		r->beenVisited = true;
@@ -344,9 +408,9 @@ void doContinue() {
 		r = &rooms[player->rloc];
 		m = &r->monster;
 		cout << "You continue on into the next area..." << endl;
-		if (m->isLiving) {
-			cout << "You spot an enemy!" << endl;
-		} else if (r->hasTraps) {
+		if (isLiving(m)) {
+			cout << "You spot a " << m->name << "!" << endl;
+		} else if (t->isArmed) {
 			cout << "You spot some traps!" << endl;
 		}
 	}
@@ -356,15 +420,18 @@ void doLook() {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
 	cout << r->name << endl;
 	cout << r->description << endl;
 	if (isOpeningRoom(p->rloc)) {
 		cout << "It's all a blur.... keep RUNNING!" << endl;
 	} else {
-			if (m->isLiving && m->difficulty != MONSTER_NONE) {
-			cout << "You spot a " << m->describer << "!" << endl;
+		if (isLiving(m)) {
+			cout << "A " << m->describer << " stands before you." << endl;
+		} else if(!isLiving(m) && m->difficulty != MONSTER_NONE) {
+			cout << "The corpse of a " << m->name << " lies motionless." << endl;
 		}
-		if (r->hasTraps) {
+		if (t->isArmed) {
 			cout << "You spot some traps!" << endl;
 		}
 	}
@@ -374,6 +441,7 @@ void doRun() {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
 	if(isOpeningRoom(p->rloc)) {
 		p->rloc++;
 		doLook();
@@ -450,62 +518,13 @@ void initRooms() {
 	rooms = new game_room[GAME_ROOM_SIZE];
 	for(int i=0;i < GAME_ROOM_SIZE; i++) {
 		game_room *r = &rooms[i];
+		game_monster *m = &r->monster;
+		game_trap *t = &rooms[i].trap;
 		if(!isNeutralRoom(i)) {
-			r->hasTraps = rand() % 2;
+			t->isArmed = rand() % 2;
 			r->hasRelic = rand() % 2;
 			if(rand() % 2) {
-				int newMob = (rand() % 10) - 5;
-				game_monster *m = &r->monster;
-				m->difficulty = newMob;
-				m->isLiving = true;
-				switch(newMob) {
-					case MONSTER_GREEN_GOBLIN:
-						m->name = "goblin";
-						m->describer = "small green goblin";
-					break;
-					case MONSTER_RED_GOBLIN:
-						m->name = "goblin";
-						m->describer = "red goblin";
-					break;
-					case MONSTER_PURPLE_GOBLIN:
-						m->name = "goblin";
-						m->describer = "large purple goblin";
-					break;
-					case MONSTER_SMALL_SKELETON:
-						m->name = "skeleton";
-						m->describer = "small skeleton";
-					break;
-					case MONSTER_KOBOLD:
-						m->name = "kobold";
-						m->describer = "vicious kobold";
-					break;
-					case MONSTER_SKELETON:
-						m->name = "skeleton";
-						m->describer = "bleached skeleton";
-					break;
-					case MONSTER_GNOLL:
-						m->name = "gnoll";
-						m->describer = "large gnoll";
-					break;
-					case MONSTER_ORC:
-						m->name = "orc";
-						m->describer = "nasty orc";
-					break;
-					case MONSTER_LARGE_SKELETON:
-						m->name = "skeleton";
-						m->describer = "giant skeleton";
-					break;
-					case MONSTER_BUGBEAR:
-						m->name = "bugbear";
-						m->describer = "greasy-looking bugbear";
-					break;
-					case MONSTER_OGRE:
-						m->name = "ogre";
-						m->describer = "massive ogre";
-					break;
-					default:
-						cout << "Unknown critter type: " << newMob << endl;
-				}
+				*m = createMonster(MONSTER_RANDOM);
 			}
 		}
 	}
@@ -620,6 +639,85 @@ void initRooms() {
 	rooms[EXIT].description = "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in\
 	\n the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of a place to sleep.";
 };
+
+
+// createMonster - spawns a critter and assigns it stats
+game_monster createMonster(int id) {
+	game_monster m;
+	int newMob;
+	if(id == MONSTER_RANDOM) newMob = (rand() % 10) - 5;
+	else newMob = id;
+	m.difficulty = newMob;
+	if(m.difficulty < 0) m.HP = 1;
+	else if(m.difficulty < 4) m.HP = 2;
+	else if(m.difficulty < 10) m.HP = 3;
+	switch (newMob) {
+		case MONSTER_GREEN_GOBLIN:
+			m.name = "goblin";
+			m.describer = "small green goblin";
+			break;
+		case MONSTER_RED_GOBLIN:
+			m.name = "goblin";
+			m.describer = "red goblin";
+			break;
+		case MONSTER_PURPLE_GOBLIN:
+			m.name = "goblin";
+			m.describer = "large purple goblin";
+			break;
+		case MONSTER_SMALL_SKELETON:
+			m.name = "skeleton";
+			m.describer = "small skeleton";
+			break;
+		case MONSTER_KOBOLD:
+			m.name = "kobold";
+			m.describer = "vicious kobold";
+			break;
+		case MONSTER_SKELETON:
+			m.name = "skeleton";
+			m.describer = "bleached skeleton";
+			break;
+		case MONSTER_GNOLL:
+			m.name = "gnoll";
+			m.describer = "large gnoll";
+			break;
+		case MONSTER_ORC:
+			m.name = "orc";
+			m.describer = "nasty orc";
+			break;
+		case MONSTER_LARGE_SKELETON:
+			m.name = "skeleton";
+			m.describer = "giant skeleton";
+			break;
+		case MONSTER_BUGBEAR:
+			m.name = "bugbear";
+			m.describer = "greasy-looking bugbear";
+			break;
+		case MONSTER_OGRE:
+			m.name = "ogre";
+			m.describer = "massive ogre";
+			break;
+		default:
+			m.name = "error";
+			m.describer = "error";
+			cout << "Unknown critter type: " << newMob << endl;
+		break;
+	}
+	return m;
+};
+
+game_item createItem(int id) {
+	game_item newItem;
+	switch(id) {
+		case ITEM_FIST:
+			newItem.name = "fists";
+			newItem.describer = "fists";
+			newItem.description = "Your old chums, law and order. They haven't let you down yet.";
+			newItem.type = ITEM_FIST;
+	}
+	return newItem;
+};
+
+
 
 // d20 function - returns a roll from 1 to 20, +/- bias
 int d20(int bias) {
