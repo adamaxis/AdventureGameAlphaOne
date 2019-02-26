@@ -5,6 +5,7 @@
 #include <iostream>
 #include <string>
 #include <sstream>
+#include <fstream>
 #include <vector>
 #include <ctime>
 using namespace std;
@@ -33,10 +34,19 @@ enum game_commands {
 	COMMAND_SEARCH,
 	COMMAND_GO,
 	COMMAND_LOOK,
+	COMMAND_USE,
 	COMMAND_DODGE,
 	COMMAND_RUN,
 	COMMAND_ESCAPE,
 	COMMAND_ENTER
+};
+
+// states for different types of objects
+enum game_object_types {
+	TYPE_NONE = 0,
+	TYPE_ITEM,
+	TYPE_MONSTER,
+	TYPE_PLAYER
 };
 
 // states for different types of monsters, organized by difficult(-5 to 5) -10 for not_a_monster and 10 for final boss
@@ -62,8 +72,10 @@ enum game_locations {
 	FOREST = 0,
 	FOREST_2,
 	FOREST_3,
+	PIT_1,
+	PIT_2,
 	ENTRY,
-	HALLWAY,
+	CORRIDOR,
 	RED_1,
 	RED_2,
 	RED_3,
@@ -112,7 +124,7 @@ enum game_items {
 
 struct game_item {
 	string name;
-	string describer;
+	string adjectives;
 	string description;
 	int type = ITEM_NONE;
 };
@@ -125,6 +137,7 @@ vector<string> delimit(const string &, char);
 string trimFirst(string &, char);
 bool isMatch(string, string);
 int determineAction(vector<string>);
+void resolveTarget(vector<string>);
 vector<string> getInput();
 bool isOpeningRoom(int);
 bool isNeutralRoom(int);
@@ -137,7 +150,7 @@ void doFight();
 void doDodge();
 void doLook();
 void doRun();
-
+void doUse();
 
 
 
@@ -171,6 +184,7 @@ struct game_monster {
 
 	game_monster() {
 		difficulty = MONSTER_NONE;
+		description = "none";
 		HP = 0;
 		weapon = createItem(ITEM_FIST);
 	}
@@ -187,13 +201,13 @@ struct game_trap {
 // room struct, for fleshing out rooms and their attributes
 struct game_room {
 	bool hasRelic, beenVisited;
-	string name, description, describer;
+	string name, description, transition;
 	game_monster monster;
 	vector<game_item> items;
 	game_trap trap;
 
 	game_room() {
-		name = description = "";
+		name = description = transition = "";
 		hasRelic = beenVisited = false;
 	}
 
@@ -207,6 +221,12 @@ struct game_room {
 // custom type functions
 
 
+struct game_command {
+	int cmd = COMMAND_UNKNOWN;
+	int obtype=0;
+	void *target;
+};
+
 template<class T>
 string getWeapon(T & entity) {
 	return entity->weapon.name;
@@ -215,6 +235,11 @@ string getWeapon(T & entity) {
 template<class T>
 string getDescriber(T & entity) {
 	return (entity->adjectives + " " + entity->name);
+};
+
+template<class T>
+string getDescription(T & entity) {
+	return (entity->description);
 };
 
 template<class T>
@@ -228,6 +253,8 @@ const int GAME_ROOM_SIZE = EXIT+1;
 // globals
 game_player *player;
 game_room *rooms;
+game_command target;
+
 int gameState;
 
 int main()
@@ -254,8 +281,18 @@ int main()
 				choice = atoi(command[0].c_str());
 				switch(choice) {
 					case MENU_HISCORES:
-						cout << "High scores not implemented yet... sorry" << endl;
-					break;
+						/*
+						ifstream inFile("Hiscore.txt");
+						if (!inFile) {
+							cout << "There are no High Scores yet. Please play the game to add a High Score";
+						} else {
+							for (int i= 0; i < 5; i++) {
+							inFile >> hiScore[i];
+							cout >> hiScore[i];
+							inFile.close();
+						}
+						*/
+							break;
 					case MENU_PLAY:
 						cout << "Game initializing..." << endl;
 						gameState = STATE_INIT;
@@ -275,7 +312,9 @@ int main()
 				initRooms();
 
 				// show first room
-				doLook();
+				cout << rooms[player->rloc].name << endl;
+				cout << rooms[player->rloc].description << endl;
+				// game = running
 				gameState = STATE_PLAYING;
 			break;
 			// game is running
@@ -286,10 +325,14 @@ int main()
 					gameState = STATE_GAMEOVER;
 					continue;
 				}
+				// clear target
+				target.obtype = TYPE_NONE;
+				target.target = nullptr;
 				command = getInput();
 				action = determineAction(command);
+				resolveTarget(command);
 				// identify target
-				if (action && player->HP) {
+				if (action && isLiving(player)) {
 					switch (action) {
 						case COMMAND_CONTINUE:
 							doContinue();
@@ -307,6 +350,9 @@ int main()
 						break;
 						case COMMAND_RUN:
 							doRun();
+						break;
+						case COMMAND_USE:
+							doUse();
 						break;
 						case COMMAND_ESCAPE:
 						break;
@@ -332,16 +378,95 @@ int main()
 	}
 }
 
-int determineAction(vector<string> input) {
+
+template <class T>
+bool adjCheck(vector<string> in, T *obj) {
+	if(in.size() == 0) return true;
+	for(string c : in) {
+		if(c.compare("at") == 0) continue;
+		if (c.compare("my") == 0) continue;
+		if(!isMatch(obj->adjectives, c)) return false;
+	}
+	return true;
+};
+
+bool nameMatch(string input) {
+	return false;
+};
+
+void resolveTarget(vector<string> in) {
+	in.erase(in.begin());
+	// 		if(in.size() > 0 && (in[0].compare("at") == 0 || in[0].size() != 0)) cid = COMMAND_LOOK_AT;
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	vector<game_item> *ir = &r->items;
 	vector<game_item> *ip = &p->items;
-	string cmd, target;
+
+	// check to ensure there is a command to be parsed
+	if (in.size() > 0) {
+
+		// grab target and remove it from vector
+		string targ = in.at(in.size() - 1);
+		in.erase(in.end()-1);
+
+		// search player items
+		for (int i = 0; i < ip->size(); i++) {
+			if (isMatch(ip->at(i).name, targ)) {
+				// adjective check
+				if(adjCheck(in, &ip->at(i))) {
+					// c-style - could not find an alternative
+					target.obtype = TYPE_ITEM;
+					target.target = reinterpret_cast<void *>(&ip->at(i));
+				}
+			}
+		}
+
+		// search room items
+		for (int i = 0; i < ir->size(); i++) {
+			if (isMatch(ir->at(i).name, targ)) {
+				// adjective check
+				if (adjCheck(in, &ir->at(i))) {
+					// c-style - could not find an alternative
+					target.obtype = TYPE_ITEM;
+					target.target = reinterpret_cast<void *>(&ip->at(i));
+				}
+			}
+		}
+
+		// search user weapon
+		if (isMatch(p->weapon.name, targ)) {
+			if (adjCheck(in, &p->weapon)) {
+				// c-style - could not find an alternative
+				target.obtype = TYPE_ITEM;
+				target.target = reinterpret_cast<void *>(&p->weapon);
+			}
+		}
+		
+		if (isMatch(m->name, targ)) {
+			if (adjCheck(in, m)) {
+				// c-style - could not find an alternative
+				target.obtype = TYPE_MONSTER;
+				target.target = reinterpret_cast<void *>(m);
+			}
+		}
+		
+
+		//if (isMatch(, target)) cout << "Affirmitive match: " << m->name << endl;
+		// search player if (isMatch(p->name, target)) cout << "Affirmitive match: " << m->name << endl;
+	}
+};
+
+int determineAction(vector<string> in) {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	game_monster *m = &r->monster;
+	vector<game_item> *ir = &r->items;
+	vector<game_item> *ip = &p->items;
+	string cmd, adjectives;
 	int cid;
 	// identify command
-	cmd = input.at(0);
+	cmd = in[0];
 	if (isMatch("fight", cmd)) {
 		cid = COMMAND_FIGHT;
 	} else if (isMatch("run", cmd)) {
@@ -353,19 +478,6 @@ int determineAction(vector<string> input) {
 	} else if (isMatch("continue", cmd)) {
 		cid = COMMAND_CONTINUE;
 	} else if (isMatch("look", cmd)) {
-		if(input.size() > 1) {
-			target = input.at(input.size() -1);
-			for(int i=0; i < ir->size(); i++) {
-				if(isMatch(ir->at(i).name, target)) cout << "Affirmitive match: " << ir->at(i).name << endl;
-			}
-			for (int i = 0; i < ip->size(); i++) {
-				if (isMatch(ip->at(i).name, target)) cout << "Affirmitive match: " << ip->at(i).name << endl;
-			}
-			if (isMatch(p->weapon.name, target)) cout << "Affirmitive match: " << p->weapon.name << endl;
-			if (isMatch(m->name, target)) cout << "Affirmitive match: " << m->name << endl;
-			//if (isMatch(, target)) cout << "Affirmitive match: " << m->name << endl;
-			// search player if (isMatch(p->name, target)) cout << "Affirmitive match: " << m->name << endl;
-		}
 		cid = COMMAND_LOOK;
 	} else if(cmd.compare("") == 0) {
 		cid = COMMAND_ENTER;
@@ -373,6 +485,7 @@ int determineAction(vector<string> input) {
 		cout << "Unknown command";
 		cid = COMMAND_UNKNOWN;
 	}
+	target.cmd = cid;
 	return cid;
 };
 
@@ -450,11 +563,13 @@ void doContinue() {
 		cout << "The room is trapped! Are you trying to die?";
 	} else {
 		r->beenVisited = true;
-		if(p->rloc == RED_EXIT || p->rloc == GREEN_EXIT || p->rloc == BLUE_EXIT || p->rloc == YELLOW_EXIT) p->rloc = HALLWAY;
+		if(p->rloc == RED_EXIT || p->rloc == GREEN_EXIT || p->rloc == BLUE_EXIT || p->rloc == YELLOW_EXIT) p->rloc = CORRIDOR;
 		else p->rloc++;
 		r = &rooms[player->rloc];
 		m = &r->monster;
 		cout << "You continue on into the next area..." << endl;
+		cout << r->name << endl;
+		cout << r->description << endl;
 		if (isLiving(m)) {
 			cout << "You spot a " << m->name << "!" << endl;
 		} else if (t->isArmed) {
@@ -463,47 +578,70 @@ void doContinue() {
 	}
 };
 
+void doRun() {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
+	if (isOpeningRoom(p->rloc)) {
+		p->rloc++;
+		r = &rooms[p->rloc];
+		cout << r->name << endl;
+		cout << r->transition << endl;
+	} else if(p->rloc == CORRIDOR) {
+	
+	} else {
+		cout << "You make a mad dash into the unknown!" << endl;
+		doContinue();
+	}
+}
+
 // doLook - LOOK command, which shows the player what's happening in the room
 void doLook() {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
-	cout << r->name << endl;
-	cout << r->description << endl;
-	if (isOpeningRoom(p->rloc)) {
-		cout << "It's all a blur.... keep RUNNING!" << endl;
-	} else {
-		if (isLiving(m)) {
-			cout << "A " << getDescriber(m) << " stands before you." << endl;
-		} else if(!isLiving(m) && m->difficulty != MONSTER_NONE) {
-			cout << "The corpse of a " << m->name << " lies motionless here." << endl;
+	if(target.obtype != TYPE_NONE) {
+		if(target.obtype == TYPE_ITEM) {
+			game_item *ni = reinterpret_cast<game_item *> (target.target);
+			cout << getDescription(ni) << endl;
+		} else if (target.obtype == TYPE_MONSTER) {
+			game_monster *nm = reinterpret_cast<game_monster *> (target.target);
+			cout << getDescription(nm) << endl;
+		} else {
+			cout << "Look at what?" << endl;
+			//cout << getDescription(reinterpret_cast<game_item *> (target.target)) << endl;
 		}
-		if (t->isArmed) {
-			cout << "You spot some traps!" << endl;
+	} else {
+		if (isOpeningRoom(p->rloc)) {
+			cout << "It's all a blur.... keep RUNNING!" << endl;
+		} else {
+			cout << r->name << endl;
+			cout << r->description << endl;
+			if (isLiving(m)) {
+				cout << "A " << getDescriber(m) << " stands before you." << endl;
+			} else if(!isLiving(m) && m->difficulty != MONSTER_NONE) {
+				cout << "The corpse of a " << m->name << " lies motionless here." << endl;
+			}
+			if (t->isArmed) {
+				cout << "You spot some traps!" << endl;
+			}
 		}
 	}
 }
 
-void doRun() {
+void doUse() {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
-	if(isOpeningRoom(p->rloc)) {
-		p->rloc++;
-		doLook();
-	} else {
-		cout << "RUN not implemented here yet - defaulting to CONTINUE" << endl;
-		doContinue();
-	}
 }
 
 
 vector<string> getInput() {
 	string input;
 	getline(cin, input);
-	cout << input << endl;
 	cin.seekg(ios::end);
 	cin.clear();
 	//cin.ignore(INT_MAX, '\0');
@@ -533,13 +671,16 @@ string trimFirst(string &toTrim, char delim) {
 
 bool isMatch(string src, string text) {
 	if(text.length() == 0) return false;
-	int num = src.find(text, 0);
-	if(num != -1 && num == 0) return true;
+	vector<string> trimmed = delimit(src, ' ');
+	for(string s : trimmed) {
+		int num = s.find(text, 0);
+		if(num != -1 && num == 0) return true;
+	}
 	return false;
 };
 
 bool isNeutralRoom(int r) {
-	if (r == FOREST || r == FOREST_2 || r == FOREST_3 || r == ENTRY || r == HALLWAY || \
+	if (r == FOREST || r == FOREST_2 || r == FOREST_3 || r == ENTRY || r == CORRIDOR || \
 		r == RED_EXIT || r == GREEN_EXIT || r == BLUE_EXIT || r == YELLOW_EXIT || \
 		r == BOSS_ENTRY || r == EXIT) return true;
 	return false;
@@ -567,31 +708,41 @@ void initRooms() {
 	}
 
 	// neutral rooms
-	rooms[FOREST].name = "[Running through the forest]";
+	rooms[FOREST].name = "Running through the forest";
 	rooms[FOREST].description = "In the distance, you hear a faint siren echoing through the trees, and footsteps getting louder.\
-	\nThe trolls are after you. You barely managed to slip out alive after they knocked your door down, but they were in fast pursuit\
-	As you escaped your village, they had already slain the chief and were rounding people up. Anyone who tried to run was killed, but\
-	you got a head-start. Your only hope now is that your feet rumble faster than their bellies.";
-	rooms[FOREST_2].description = "You continue running, trying to outpace the trolls in pursuit. The branches are like outstretched\
-	\nfingers clawing at your face and clothes. One thought dominates all, 'Keep moving, just keep moving.'";
-	rooms[FOREST_3].description = "As you make your way through the dark forest, you realize that you no longer have any idea where you\
-	\nare. You've never been this deep into the forest before, let alone at night. You keep running, putting one foot in front of the\
-	\nother. Suddenly there is no more ground beneath your feet. You tumble down into the darkness.";
-	rooms[ENTRY].name = "Main Room, Several Doors";
-	rooms[ENTRY].description = "You hit the ground with a dull thud, and the breath is knoked from your chest.You take a few moments\
-	\n and recover, eventually getting up and dusting yourself off. you like around and realize you've fallen to the bottom of a rather\
-	\nlarge pit. There is no way back up to the forest above. You scan the pit and see an opening on the wall. You approach it. As you \
-	\n approach the opening you notice that torches line the walls lighting the room you've just walked into. It's dim, but you can see\
-	\nthat there are five doors on the wall opposite you. As you cautiously walk closer to the doors, you hear a loud rumble, as if \
-	\nthe earth itself is being split in two. Without warning the entrance behind you caves in. You're trapped. Your only choice is to\
-	\ngo through one of the doors ahead of you. As you move closer, you can make out more details about the doors. On the left there are\
-	\ntwo doors, one red and one green. On the right there are two more, one blue and one yellow. In the center there is a massive, ornately\
-	\ndecorated door that appears to be made of solid gold. Where would you like to go first?";
+The trolls are after you. You barely managed to slip out alive after they knocked your door down, but they were in fast pursuit.\
+As you made your egress, they had already slain the chief and seemed to be rounding people up - anyone who tried to run was killed, but\
+you were the lucky one and got a head-start. Your only hope now is that your feet rumble faster than their bellies.";
+	rooms[FOREST_2].transition = "You continue running, trying to outpace the trolls in pursuit. The branches come at you like outstretched\
+fingers, frantically clawing at your face and clothes - much like your pursuers, if they catch you. One thought dominates all, \
+\'Keep moving, just keep moving.\'";
+	rooms[FOREST_3].transition = "As you make your way through the dark forest, it dawns on you that you no longer have any idea where you\
+are - you've never been this deep into the forest before, let alone at night. That doesn't stop your running though, putting one foot in\
+front of the other. Suddenly, with one errant step, the ground exits beneath your feet, and you feel yourself tumbling into darkness.";
+	rooms[PIT_1].transition = "You continue tumbling, unsure of which direction you're moving in, until you finally the ground with a dull thud, \
+knocking the breath from your chest. You take a second to recover, only to realize that you there is no way out of this pit. It quickly \
+dawns on you may have fallen into a trap. You feel around until you locate a gap in the darkness and frantically begin your descent, hopefully\
+out of danger for a change?";
+	rooms[PIT_2].transition = "You continue tumbling, unsure of which direction you're moving in, until you finally the ground with a dull thud, \
+knocking the breath from your chest. You take a second to recover, only to realize that you there is no way out of this pit. It quickly \
+dawns on you may have fallen into a trap. You feel around until you locate a gap in the darkness and frantically begin your descent, hopefully\
+out of danger for a change?";
+	rooms[ENTRY].name = "";
+	rooms[ENTRY].description = "You hit the ground with a dull thud, and the breath is knocked from your chest. You take a few moments\
+and recover, eventually getting up and dusting yourself off.you like around and realize you've fallen to the bottom of a rather\
+large pit. There seems to be no way back up to the forest above. Could this be a trap?";
+	rooms[CORRIDOR].name = "Corridor, Chamber";
+	"You scan the pit and see an opening on the wall.You approach it.As you \
+approach the opening you notice that torches line the walls lighting the room you've just walked into. You open the door and head down the dimly lit passage. After a short while, the passage opens into a room.";
+	rooms[CORRIDOR].description = "It's dim, but you can see\
+that there are five doors on the wall opposite you. As you cautiously walk closer to the doors, you hear a loud rumble, as if \
+the earth itself is being split in two. Without warning the entrance behind you caves in. You're trapped. Your only choice is to\
+go through one of the doors ahead of you. As you move closer, you can make out more details about the doors. On the left there are\
+two doors, one red and one green. On the right there are two more, one blue and one yellow. In the center there is a massive, ornately\
+decorated door that appears to be made of solid gold. Where would you like to go first?";
 	//If this description needs to be less detailed in order to reuse the room later in the program, we can go with something like, You enter
 	//the main room of the cave system. Opposite you are 5 doors, one red, one green, one blue and one yellow. In the center is a massive
 	//golden door. Which door will you go through?
-	rooms[HALLWAY].name = "Corridor, Chamber";
-	rooms[HALLWAY].description = "You open the door and head down the dimly lit passage. After a short while, the passage opens into a room.";
 	rooms[RED_EXIT].name = "Red Door, Narrow Passage";
 	rooms[RED_EXIT].description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
 	rooms[GREEN_EXIT].name = "Green Door, Narrow Passage";
@@ -750,7 +901,7 @@ game_item createItem(int id) {
 	switch(id) {
 		case ITEM_FIST:
 			newItem.name = "fists";
-			newItem.describer = "fists";
+			newItem.adjectives = "";
 			newItem.description = "Your old chums, law and order. They haven't let you down yet.";
 			newItem.type = ITEM_FIST;
 	}
@@ -766,3 +917,17 @@ int d20(int bias) {
 	(roll > 20 ? roll = 20 : 0);
 	return roll;
 }
+
+/*
+//hiScore function. This writes any new hi scores to disk, if there are any. I believe we're using the amount of gold a player has as there score correct?
+void hiScores() {
+	game_player *p = &player;
+	for (int i = 0; i < 5; i++) {
+		if (p->gold > hiScore[i])
+			hiScore[i] = p->gold;
+		ofstream outputFile;
+		outputFile.open("High Scores.txt");
+		for (counter = 0; counter < 5; counter++)
+			outputFile << hiScore[counter];
+	}
+}*/
