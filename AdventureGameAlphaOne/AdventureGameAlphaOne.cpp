@@ -8,6 +8,7 @@
 #include <fstream>
 #include <vector>
 #include <ctime>
+#include <bitset>
 using namespace std;
 
 // states for game status
@@ -117,6 +118,12 @@ enum game_items {
 	ITEM_BLUE_KEY,
 	ITEM_YELLOW_KEY,
 	ITEM_GREEN_KEY,
+	ITEM_RED_DOOR,
+	ITEM_BLUE_DOOR,
+	ITEM_YELLOW_DOOR,
+	ITEM_GREEN_DOOR,
+	ITEM_GOLD_DOOR,
+	ITEM_HOLE,
 	ITEM_ARMOR_1,
 	ITEM_SWORD_1
 };
@@ -151,6 +158,9 @@ void doDodge();
 void doLook();
 void doRun();
 void doUse();
+
+
+
 
 
 
@@ -236,6 +246,12 @@ template<class T>
 string getDescriber(T & entity) {
 	return (entity->adjectives + " " + entity->name);
 };
+
+template<class T>
+string getName(T & entity) {
+	return (entity->name);
+};
+
 
 template<class T>
 string getDescription(T & entity) {
@@ -549,6 +565,22 @@ void doDodge() {
 	}
 };
 
+void doGo() {
+	game_room *r = &rooms[player->rloc];
+	game_player *p = player;
+	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
+	if (target.obtype == TYPE_ITEM) {
+		game_item *ni = reinterpret_cast<game_item *> (target.target);
+		
+	} else if (target.obtype == TYPE_MONSTER) {
+		game_monster *nm = reinterpret_cast<game_monster *> (target.target);
+		cout << getDescription(nm) << endl;
+	} else {
+		cout << "Go where?" << endl;
+	}
+}
+
 // doContinue - CONTINUE command, which moves the player forward
 void doContinue() {
 	game_room *r = &rooms[player->rloc];
@@ -557,12 +589,15 @@ void doContinue() {
 	game_trap *t = &r->trap;
 	if(isOpeningRoom(p->rloc)) {
 		cout << "There's no time for walking... RUN!" << endl;
+	} else if(p->rloc == CORRIDOR) {
+		cout << "There is no obvious path forward." << endl;
 	} else if(isLiving(m)) {
 		cout << "You can't leave until you've vanquished the " + r->monster.name + "!";
 	} else if(t->isArmed) {
 		cout << "The room is trapped! Are you trying to die?";
 	} else {
 		r->beenVisited = true;
+		cout << r->transition << endl;
 		if(p->rloc == RED_EXIT || p->rloc == GREEN_EXIT || p->rloc == BLUE_EXIT || p->rloc == YELLOW_EXIT) p->rloc = CORRIDOR;
 		else p->rloc++;
 		r = &rooms[player->rloc];
@@ -584,14 +619,13 @@ void doRun() {
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
 	if (isOpeningRoom(p->rloc)) {
+		cout << r->transition << endl;
 		p->rloc++;
 		r = &rooms[p->rloc];
 		cout << r->name << endl;
-		cout << r->transition << endl;
 	} else if(p->rloc == CORRIDOR) {
 	
 	} else {
-		cout << "You make a mad dash into the unknown!" << endl;
 		doContinue();
 	}
 }
@@ -610,6 +644,7 @@ void doLook() {
 			game_monster *nm = reinterpret_cast<game_monster *> (target.target);
 			cout << getDescription(nm) << endl;
 		} else {
+			// needs to be fixed later - doesn't work
 			cout << "Look at what?" << endl;
 			//cout << getDescription(reinterpret_cast<game_item *> (target.target)) << endl;
 		}
@@ -680,14 +715,14 @@ bool isMatch(string src, string text) {
 };
 
 bool isNeutralRoom(int r) {
-	if (r == FOREST || r == FOREST_2 || r == FOREST_3 || r == ENTRY || r == CORRIDOR || \
+	if (r == FOREST || r == FOREST_2 || r == FOREST_3 || r == PIT_1 || r == PIT_2 || r == ENTRY || r == CORRIDOR || \
 		r == RED_EXIT || r == GREEN_EXIT || r == BLUE_EXIT || r == YELLOW_EXIT || \
 		r == BOSS_ENTRY || r == EXIT) return true;
 	return false;
 }
 
 bool isOpeningRoom(int r) {
-	if (r == FOREST || r == FOREST_2 || r == FOREST_3) return true;
+	if (r == FOREST || r == FOREST_2 || r == FOREST_3 || r == PIT_1 || r == PIT_2) return true;
 	return false;
 }
 
@@ -709,28 +744,34 @@ void initRooms() {
 
 	// neutral rooms
 	rooms[FOREST].name = "Running through the forest";
-	rooms[FOREST].description = "In the distance, you hear a faint siren echoing through the trees, and footsteps getting louder.\
-The trolls are after you. You barely managed to slip out alive after they knocked your door down, but they were in fast pursuit.\
-As you made your egress, they had already slain the chief and seemed to be rounding people up - anyone who tried to run was killed, but\
-you were the lucky one and got a head-start. Your only hope now is that your feet rumble faster than their bellies.";
-	rooms[FOREST_2].transition = "You continue running, trying to outpace the trolls in pursuit. The branches come at you like outstretched\
-fingers, frantically clawing at your face and clothes - much like your pursuers, if they catch you. One thought dominates all, \
-\'Keep moving, just keep moving.\'";
-	rooms[FOREST_3].transition = "As you make your way through the dark forest, it dawns on you that you no longer have any idea where you\
-are - you've never been this deep into the forest before, let alone at night. That doesn't stop your running though, putting one foot in\
-front of the other. Suddenly, with one errant step, the ground exits beneath your feet, and you feel yourself tumbling into darkness.";
-	rooms[PIT_1].transition = "You continue tumbling, unsure of which direction you're moving in, until you finally the ground with a dull thud, \
-knocking the breath from your chest. You take a second to recover, only to realize that you there is no way out of this pit. It quickly \
-dawns on you may have fallen into a trap. You feel around until you locate a gap in the darkness and frantically begin your descent, hopefully\
-out of danger for a change?";
-	rooms[PIT_2].transition = "You continue tumbling, unsure of which direction you're moving in, until you finally the ground with a dull thud, \
-knocking the breath from your chest. You take a second to recover, only to realize that you there is no way out of this pit. It quickly \
-dawns on you may have fallen into a trap. You feel around until you locate a gap in the darkness and frantically begin your descent, hopefully\
-out of danger for a change?";
-	rooms[ENTRY].name = "";
-	rooms[ENTRY].description = "You hit the ground with a dull thud, and the breath is knocked from your chest. You take a few moments\
-and recover, eventually getting up and dusting yourself off.you like around and realize you've fallen to the bottom of a rather\
-large pit. There seems to be no way back up to the forest above. Could this be a trap?";
+	rooms[FOREST].description = "In the distance, you hear a faint siren echoing through the trees. \
+The trolls are after you, and you can hear their footsteps getting louder. You barely managed to slip \
+out unscathed after they knocked your door down, but they were in fast pursuit. As you made your escape, \
+they had already slain the chief and seemed to be rounding people up - anyone who tried to run was killed, \
+but you were the lucky one and got a head-start. Their fates (and your own) rest on that your feet rumble \
+faster than the troll's bellies.";
+	rooms[FOREST].transition = "You continue your sprint, trying to outpace the trolls in pursuit. The branches \
+seem to unfurl towards you like outstretched fingers, frantically clawing at your face and clothes - much like \
+your pursuers, if they catch you. One thought dominates all, \'Don't stop: just keep moving.\'";
+	rooms[FOREST_2].transition = "As you bustle through the dark forest, it dawns on you that you no longer \
+have any idea where you are - you've never been this deep before, let alone in complete darkness. That doesn't \
+stop your running though - trolls are much scarier than darkness. Suddenly, with one errant step, the ground \
+exits beneath you, and you find yourself tumbling into the unknown.";
+	rooms[FOREST_3].transition = "You continue your nascent plunge, devoid of rhyme or reason. After jarring \
+yourself several times against the mysteries of the night, you finally hit ground with a dull thud, knocking \
+the breath from your chest. You take a second to recover, only to realize that you there is no way out of this \
+pit as it dawns on you may have fallen into a trap. You feel around until you locate a gap in the darkness and \
+frantically begin your descent, hopefully out of danger \
+for a change?";
+	rooms[PIT_1].transition = "As you continue into the hole, you catch a glimpse of light in the distance, \
+but give pause when you realize that there is no natural light underground. You slow your stride and quietly move \
+towards the light, when at once, you jerk yourself to a stop as you notice a large chasm taking shape shape \
+between you and your destination. It seems your only hope is to try to jump it";
+	rooms[PIT_2].transition = "Gathering up your courage, you jump.";
+	rooms[ENTRY].description = "You jumped and are now in front of a large metal door. There's a hole you can crawl \
+through";
+	rooms[ENTRY].transition = "You crawl down into the hole and begin shimmying through. Loose dirt flies up in \
+your hair and on your face and clothes, and the hole seems to narrower. With significant labor, you squeeze through";
 	rooms[CORRIDOR].name = "Corridor, Chamber";
 	"You scan the pit and see an opening on the wall.You approach it.As you \
 approach the opening you notice that torches line the walls lighting the room you've just walked into. You open the door and head down the dimly lit passage. After a short while, the passage opens into a room.";
