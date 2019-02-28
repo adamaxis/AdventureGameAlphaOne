@@ -11,6 +11,23 @@
 #include <bitset>
 using namespace std;
 
+#define setB(x,y) x |= (1 << y)
+
+#define clearB(x,y) x &= ~(1<< y)
+
+#define checkB(x,y) ((0u == (x & (1<<y)))?0u:1u)
+
+#define toggleB(x,y) (x ^= (1<<y))
+
+enum item_states {
+	BIT = 0,
+	BIT_IMMOBILE = 1,
+	BIT_EXIT = 2,
+	BIT_POTION = 4,
+	BIT_WEAPON = 8,
+	BIT_ARMOR = 16,
+};
+
 // states for game status
 enum game_states {
 	STATE_EXIT=0,
@@ -37,6 +54,7 @@ enum game_commands {
 	COMMAND_LOOK,
 	COMMAND_USE,
 	COMMAND_DODGE,
+	COMMAND_TAKE,
 	COMMAND_RUN,
 	COMMAND_ESCAPE,
 	COMMAND_ENTER
@@ -124,8 +142,15 @@ enum game_items {
 	ITEM_GREEN_DOOR,
 	ITEM_GOLD_DOOR,
 	ITEM_HOLE,
-	ITEM_ARMOR_1,
-	ITEM_SWORD_1
+	ITEM_WEAPON=100,
+	ITEM_DAGGER,
+	ITEM_SCIMITAR,
+	ITEM_RAPIER,
+	ITEM_LONGSWORD,
+	ITEM_BROADSWORD,
+	ITEM_2HSWORD,
+	ITEM_WEAPON_END,
+	ITEM_ARMOR=200
 };
 
 
@@ -134,6 +159,18 @@ struct game_item {
 	string adjectives;
 	string description;
 	int type = ITEM_NONE;
+	int flags = 0;
+	int prop1 = 0;
+	int prop2 = 0;
+
+	void clear() {
+		name = adjectives = description = "";
+		int type = ITEM_NONE;
+		int flags = 0;
+		int prop1 = 0;
+		int prop2 = 0;
+	}
+
 };
 
 game_item createItem(int);
@@ -158,9 +195,9 @@ void doGo();
 void doFight();
 void doDodge();
 void doLook();
+void doLookBrief();
 void doUse();
-
-
+void doTake();
 
 
 
@@ -191,6 +228,7 @@ struct game_monster {
 	string name, description, adjectives;
 	int HP;
 	game_item weapon;
+	vector<game_item> items;
 	int difficulty;
 
 	game_monster() {
@@ -201,6 +239,7 @@ struct game_monster {
 	}
 };
 
+void monsterDeath(game_monster *);
 game_monster createMonster(int = MONSTER_NONE);
 
 struct game_trap {
@@ -269,7 +308,7 @@ bool isActive(game_trap *t) {
 };
 
 bool isExit(game_item *i) {
-	if(i->type == ITEM_BLUE_DOOR || i->type == ITEM_GREEN_DOOR || i->type == ITEM_RED_DOOR || i->type == ITEM_YELLOW_DOOR || i->type == ITEM_GOLD_DOOR || i->type == ITEM_HOLE) return true;
+	if(checkB(i->flags, BIT_EXIT)) return true;
 	return false;
 };
 
@@ -380,6 +419,9 @@ int main()
 						break;
 						case COMMAND_USE:
 							doUse();
+						break;
+						case COMMAND_TAKE:
+							doTake();
 						break;
 						case COMMAND_ESCAPE:
 						break;
@@ -508,6 +550,8 @@ int determineAction(vector<string> in) {
 		cid = COMMAND_DODGE;
 	} else if (isMatch("look", cmd)) {
 		cid = COMMAND_LOOK;
+	} else if (isMatch("take", cmd)) {
+		cid = COMMAND_TAKE;
 	} else if(cmd.compare("") == 0) {
 		cid = COMMAND_ENTER;
 	} else {
@@ -537,9 +581,7 @@ void doFight() {
 		if(pHit >= mHit) {
 			cout << "You out-fox the " + m->name + " and land a solid blow with your " << getWeapon(p) << "!" << endl;
 			m->HP--;
-			if(m->HP <= 0) {
-				cout << "The " + m->name + " crumbles to the ground lifelessly." << endl;
-			}
+			if(m->HP <= 0) monsterDeath(m);
 		} else if(mHit > pHit) {
 			cout << "The " + m->name + " slips into flanking position and lands a mighty blow with its " << getWeapon(m) << " that sends you flying!" << endl;
 			player->HP--;
@@ -592,13 +634,8 @@ void doGo() {
 					cout << "But the " << getName(t) << " is armed!" << endl;
 				} else {
 					cout << "You pass through the " << getName(ni) << endl;
-					if(ni->type == ITEM_BLUE_DOOR) p->rloc = BLUE_1;
-					else if(ni->type == ITEM_RED_DOOR) p->rloc = RED_1;
-					else if(ni->type == ITEM_YELLOW_DOOR) p->rloc = YELLOW_1;
-					else if(ni->type == ITEM_GREEN_DOOR) p->rloc = GREEN_1;
-					else if(ni->type == ITEM_GOLD_DOOR) p->rloc = BOSS_ENTRY;
-					else if(ni->type == ITEM_HOLE) p->rloc = CORRIDOR;
-					doLook();
+					p->rloc = ni->prop1;
+					doLookBrief();
 				}
 		} else {
 			cout << "You can't go there!" << endl;
@@ -633,19 +670,28 @@ void doContinue() {
 		r = &rooms[player->rloc];
 		m = &r->monster;
 		cout << "You continue on into the next area..." << endl;
-		cout << r->name << endl;
-		cout << r->description << endl;
-		if (isLiving(m)) {
-			cout << "You spot a " << m->name << "!" << endl;
-		} if (t->isArmed) {
-			cout << "You spot some traps!" << endl;
-		} if(r->items.size() == 1) {
-			cout << "You spot an item of interest here." << endl;
-		} else if (r->items.size() > 1) {
-			cout << "You spot several items of interest here." << endl;
-		}
+		doLookBrief();
 	}
 };
+
+void doLookBrief() {
+	game_room *r = &rooms[player->rloc];
+	game_player *p = player;
+	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
+
+	cout << r->name << endl;
+	cout << r->description << endl;
+	if (isLiving(m)) {
+		cout << "You spot a " << m->name << "!" << endl;
+	} if (t->isArmed) {
+		cout << "You spot some traps!" << endl;
+	} if (r->items.size() == 1) {
+		cout << "You spot an item of interest here." << endl;
+	} else if (r->items.size() > 1) {
+		cout << "You spot several items of interest here." << endl;
+	}
+}
 
 void doRun() {
 	game_player *p = player;
@@ -668,6 +714,8 @@ void doRun() {
 void doLook() {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
+	vector<game_item> *ri = &r->items;
+	//vector<game_item> *pi = &p->items;
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
 	if(target.obtype != TYPE_NONE) {
@@ -693,6 +741,14 @@ void doLook() {
 			} else if(!isLiving(m) && m->difficulty != MONSTER_NONE) {
 				cout << "The corpse of a " << m->name << " lies motionless here." << endl;
 			}
+			if(ri->size() > 0) {
+				cout << "You also see: " << endl;
+				for(int i=0; i < ri->size(); i++) {
+					game_item *gi = &ri->at(i);
+					cout << "a " << getDescriber(gi) << endl;
+				}
+			}
+
 			if (t->isArmed) {
 				cout << "You spot some traps!" << endl;
 			}
@@ -701,6 +757,13 @@ void doLook() {
 }
 
 void doUse() {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
+}
+
+void doTake() {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
@@ -910,6 +973,23 @@ decorated door that appears to be made of solid gold.";
 };
 
 
+void monsterDeath(game_monster *m) {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	vector<game_item> *ir = &r->items;
+	vector<game_item> *im = &m->items;
+	cout << "The " + m->name + " crumbles to the ground lifelessly." << endl;
+	if(im->size() > 0) cout << "His items fall to the ground!" << endl;
+	for(game_item gi : *im) {
+		ir->push_back(gi);
+	}
+	if(m->weapon.type != ITEM_FIST) {
+		ir->push_back(m->weapon);
+		m->weapon.clear();
+	}
+	im->clear();
+};
+
 // createMonster - spawns a critter and assigns it stats
 game_monster createMonster(int id) {
 	game_monster m;
@@ -971,6 +1051,24 @@ game_monster createMonster(int id) {
 			cout << "Unknown critter type: " << newMob << endl;
 		break;
 	}
+
+	while (rand() % 2) {
+		switch (rand() % 3) {
+			case 0:
+				// generate weapon
+				m.items.push_back(createItem((rand() % (ITEM_WEAPON_END - ITEM_WEAPON-1)) + ITEM_WEAPON+1));
+				cout << endl;
+				break;
+			case 1:
+				cout << "Armor isn't set up yet." << endl;
+
+				break;
+			case 2:
+				cout << "Items aren't set up yet." << endl;
+				break;
+		}
+	}
+
 	return m;
 };
 
@@ -982,6 +1080,7 @@ game_item createItem(int id) {
 			newItem.adjectives = "";
 			newItem.description = "Your old chums, law and order. They haven't let you down yet.";
 			newItem.type = ITEM_FIST;
+			setB(newItem.flags, BIT_WEAPON);
 		break;
 		case ITEM_RED_DOOR:
 			newItem.name = "door";
@@ -989,6 +1088,8 @@ game_item createItem(int id) {
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			newItem.type = ITEM_RED_DOOR;
+			setB(newItem.flags, BIT_EXIT);
+			newItem.prop1 = RED_1;
 			break;
 		case ITEM_GREEN_DOOR:
 			newItem.name = "door";
@@ -996,6 +1097,8 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			newItem.type = ITEM_GREEN_DOOR;
+			setB(newItem.flags, BIT_EXIT);
+			newItem.prop1 = BLUE_1;
 			break;
 		case ITEM_BLUE_DOOR:
 			newItem.name = "door";
@@ -1003,6 +1106,8 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			newItem.type = ITEM_BLUE_DOOR;
+			setB(newItem.flags, BIT_EXIT);
+			newItem.prop1 = BLUE_1;
 			break;
 		case ITEM_YELLOW_DOOR:
 			newItem.name = "door";
@@ -1010,6 +1115,8 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			newItem.type = ITEM_YELLOW_DOOR;
+			setB(newItem.flags, BIT_EXIT);
+			newItem.prop1 = YELLOW_1;
 			break;
 		case ITEM_GOLD_DOOR:
 			newItem.name = "door";
@@ -1017,6 +1124,8 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			newItem.type = ITEM_YELLOW_DOOR;
+			newItem.prop1 = BOSS_ENTRY;
+			setB(newItem.flags, BIT_EXIT);
 			break;
 		case ITEM_HOLE:
 			newItem.name = "burrow";
@@ -1024,7 +1133,62 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.description = "A small burrow is dug into the wall here, though by the markings, you aren't sure \
 what dug it. If you were to squeeze, you could probably make your way through it.";
 			newItem.type = ITEM_HOLE;
+			setB(newItem.flags, BIT_EXIT);
+			newItem.prop1 = CORRIDOR;
 			break;
+		case ITEM_DAGGER:
+			newItem.name = "dagger";
+			newItem.adjectives = "small";
+			newItem.description = "A small dagger.";
+			newItem.type = ITEM_WEAPON;
+			setB(newItem.flags, BIT_WEAPON);
+			newItem.prop1 = 2;
+			break;
+		case ITEM_SCIMITAR:
+			newItem.name = "dagger";
+			newItem.adjectives = "small";
+			newItem.description = "A small dagger.";
+			newItem.type = ITEM_WEAPON;
+			setB(newItem.flags, BIT_WEAPON);
+			newItem.prop1 = 3;
+			break;
+		case ITEM_RAPIER:
+			newItem.name = "rapier";
+			newItem.adjectives = "rusty";
+			newItem.description = "An old rusty rapier.";
+			newItem.type = ITEM_WEAPON;
+			setB(newItem.flags, BIT_WEAPON);
+			newItem.prop1 = 4;
+			break;
+		case ITEM_LONGSWORD:
+			newItem.name = "longsword";
+			newItem.adjectives = "shiny";
+			newItem.description = "A shiny longsword. It looks like it was recently polished.";
+			newItem.type = ITEM_WEAPON;
+			setB(newItem.flags, BIT_WEAPON);
+			newItem.prop1 = 5;
+			break;
+		case ITEM_BROADSWORD:
+			newItem.name = "broadsword";
+			newItem.adjectives = "weighted";
+			newItem.description = "A weighted broadsword, designed to maximize the force of a swing \
+without upsetting the balance.";
+			newItem.type = ITEM_WEAPON;
+			setB(newItem.flags, BIT_WEAPON);
+			newItem.prop1 = 7;
+			break;
+		case ITEM_2HSWORD:
+			newItem.name = "sword";
+			newItem.adjectives = "two-handed";
+			newItem.description = "A massive two-handed sword. Anyone hit by this thing is going to be \
+in some serious pain";
+			newItem.type = ITEM_WEAPON;
+			setB(newItem.flags, BIT_WEAPON);
+			newItem.prop1 = 9;
+		break;
+		default:
+			cout << "createItem(): unknown id (" << id << ")" << endl;
+		break;
 	}
 	return newItem;
 };
