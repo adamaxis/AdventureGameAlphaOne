@@ -15,17 +15,25 @@ using namespace std;
 
 #define clearB(x,y) x &= ~(1<< y)
 
-#define checkB(x,y) ((0u == (x & (1<<y)))?0u:1u)
+bool checkB(int x, int y) {
+	return (0 == (x & (1 << y))) ? false : true;
+};
+//#define checkB(x,y) ((0u == (x & (1<<y)))?false:true)
 
 #define toggleB(x,y) (x ^= (1<<y))
 
 enum item_states {
-	BIT = 0,
 	BIT_IMMOBILE = 1,
 	BIT_EXIT = 2,
-	BIT_POTION = 4,
-	BIT_WEAPON = 8,
-	BIT_ARMOR = 16,
+	BIT_POTION = 3,
+	BIT_WEAPON = 4,
+	BIT_ARMOR = 5,
+};
+
+enum room_states {
+	BIT_DARK = 1,
+	BIT_RUNNING = 2,
+	BIT_NOEXIT = 3
 };
 
 // states for game status
@@ -65,7 +73,8 @@ enum game_object_types {
 	TYPE_NONE = 0,
 	TYPE_ITEM,
 	TYPE_MONSTER,
-	TYPE_PLAYER
+	TYPE_PLAYER,
+	TYPE_ROOM
 };
 
 // states for different types of monsters, organized by difficult(-5 to 5) -10 for not_a_monster and 10 for final boss
@@ -131,6 +140,7 @@ enum game_traps {
 
 enum game_items {
 	ITEM_FIST = -10,
+	ITEM_CLAW,
 	ITEM_NONE = 0,
 	ITEM_RED_KEY,
 	ITEM_BLUE_KEY,
@@ -159,16 +169,21 @@ struct game_item {
 	string adjectives;
 	string description;
 	int type = ITEM_NONE;
-	int flags = 0;
+	long flags = 0;
 	int prop1 = 0;
 	int prop2 = 0;
+	int id;
+
+	game_item() {
+		id = rand();
+	}
 
 	void clear() {
 		name = adjectives = description = "";
-		int type = ITEM_NONE;
-		int flags = 0;
-		int prop1 = 0;
-		int prop2 = 0;
+		type = ITEM_NONE;
+		flags = 0;
+		prop1 = 0;
+		prop2 = 0;
 	}
 
 };
@@ -186,7 +201,7 @@ vector<string> getInput();
 bool isOpeningRoom(int);
 bool isNeutralRoom(int);
 void initRooms();
-int d20(int);
+int d20(int = 0);
 
 // action function prototypes
 void doRun();
@@ -254,6 +269,7 @@ struct game_room {
 	string name, description, transition;
 	game_monster monster;
 	vector<game_item> items;
+	long flags;
 	game_trap trap;
 
 	game_room() {
@@ -273,17 +289,24 @@ struct game_room {
 
 struct game_command {
 	int cmd = COMMAND_UNKNOWN;
-	int obtype=0;
-	void *target;
+	int type=0, ptype=0;
+	void *target, *parent;
 };
 
 template<class T>
-string getWeapon(T & entity) {
+string getWeapon(T *entity) {
 	return entity->weapon.name;
 };
 
 template<class T>
-string getDescriber(T & entity) {
+int getDamage(T *entity) {
+	return entity->weapon.prop1;
+};
+
+
+
+template<class T>
+string getDescriber(T *entity) {
 	return (entity->adjectives + " " + entity->name);
 };
 
@@ -296,6 +319,11 @@ string getName(T & entity) {
 template<class T>
 string getDescription(T & entity) {
 	return (entity->description);
+};
+
+template<class T>
+bool areEqual(T *entity, T *entity2) {
+	return(entity->id == entity2->id);
 };
 
 template<class T>
@@ -391,7 +419,7 @@ int main()
 					continue;
 				}
 				// clear target
-				target.obtype = TYPE_NONE;
+				target.type = TYPE_NONE;
 				target.target = nullptr;
 				command = getInput();
 				action = determineAction(command);
@@ -425,13 +453,13 @@ int main()
 						break;
 						case COMMAND_ESCAPE:
 						break;
-						case COMMAND_UNKNOWN:
-						break;
 
 						case COMMAND_ENTER:
 							
 						break;
+						case COMMAND_UNKNOWN:
 						default:
+							cout << "Unknown command" << endl;
 						break;
 					}
 				}
@@ -480,24 +508,28 @@ void resolveTarget(vector<string> in) {
 		in.erase(in.end()-1);
 
 		// search player items
-		for (int i = 0; i < ip->size(); i++) {
+		for (int i = 0; i < (int)ip->size(); i++) {
 			if (isMatch(ip->at(i).name, targ)) {
 				// adjective check
 				if(adjCheck(in, &ip->at(i))) {
 					// c-style - could not find an alternative
-					target.obtype = TYPE_ITEM;
+					target.ptype = TYPE_PLAYER;
+					target.parent = reinterpret_cast<void *>(&p);
+					target.type = TYPE_ITEM;
 					target.target = reinterpret_cast<void *>(&ip->at(i));
 				}
 			}
 		}
 
 		// search room items
-		for (int i = 0; i < ir->size(); i++) {
+		for (int i = 0; i < (int)ir->size(); i++) {
 			if (isMatch(ir->at(i).name, targ)) {
 				// adjective check
 				if (adjCheck(in, &ir->at(i))) {
 					// c-style - could not find an alternative
-					target.obtype = TYPE_ITEM;
+					target.ptype = TYPE_ROOM;
+					target.parent = reinterpret_cast<void *>(&r);
+					target.type = TYPE_ITEM;
 					target.target = reinterpret_cast<void *>(&ir->at(i));
 				}
 			}
@@ -507,7 +539,9 @@ void resolveTarget(vector<string> in) {
 		if (isMatch(p->weapon.name, targ)) {
 			if (adjCheck(in, &p->weapon)) {
 				// c-style - could not find an alternative
-				target.obtype = TYPE_ITEM;
+				target.ptype = TYPE_PLAYER;
+				target.parent = reinterpret_cast<void *>(&p);
+				target.type = TYPE_ITEM;
 				target.target = reinterpret_cast<void *>(&p->weapon);
 			}
 		}
@@ -515,7 +549,9 @@ void resolveTarget(vector<string> in) {
 		if (isMatch(m->name, targ)) {
 			if (adjCheck(in, m)) {
 				// c-style - could not find an alternative
-				target.obtype = TYPE_MONSTER;
+				target.ptype = TYPE_ROOM;
+				target.parent = reinterpret_cast<void *>(&r);
+				target.type = TYPE_MONSTER;
 				target.target = reinterpret_cast<void *>(m);
 			}
 		}
@@ -555,7 +591,6 @@ int determineAction(vector<string> in) {
 	} else if(cmd.compare("") == 0) {
 		cid = COMMAND_ENTER;
 	} else {
-		cout << "Unknown command";
 		cid = COMMAND_UNKNOWN;
 	}
 	target.cmd = cid;
@@ -574,16 +609,23 @@ void doFight() {
 	} else if(!isLiving(m)) {
 		cout << "But the " + m->name + " is already dead!" << endl;
 	} else {
-		int pHit = d20(player->bonus);
-		int mHit = d20(m->difficulty);
-		cout << "You rolled: " << pHit << endl;
-		cout << m->name << " rolled: " << mHit << endl;
+		int pRoll, pHit;
+		pRoll = d20();
+		pHit = getDamage(p);
+		int mRoll, mHit;
+		mRoll = d20();
+		mHit = getDamage(m);
+
+		cout << "You rolled: " << pRoll << " +" << pHit << endl;
+		cout << getName(m) << " rolled: " << mRoll << " +" << mHit << endl;
+		pHit += pRoll;
+		mHit += mRoll;
 		if(pHit >= mHit) {
-			cout << "You out-fox the " + m->name + " and land a solid blow with your " << getWeapon(p) << "!" << endl;
+			cout << "You out-fox the " + getName(m) + " and land a solid blow with your " << getWeapon(p) << "!" << endl;
 			m->HP--;
 			if(m->HP <= 0) monsterDeath(m);
 		} else if(mHit > pHit) {
-			cout << "The " + m->name + " slips into flanking position and lands a mighty blow with its " << getWeapon(m) << " that sends you flying!" << endl;
+			cout << "The " + getName(m) + " slips into flanking position and lands a mighty blow with its " << getWeapon(m) << " that sends you reeling!" << endl;
 			player->HP--;
 		}
 
@@ -625,7 +667,7 @@ void doGo() {
 	game_player *p = player;
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
-	if (target.obtype == TYPE_ITEM) {
+	if (target.type == TYPE_ITEM) {
 		game_item *ni = reinterpret_cast<game_item *> (target.target);
 		if(isExit(ni)) {
 				if(isLiving(m)) {
@@ -640,7 +682,7 @@ void doGo() {
 		} else {
 			cout << "You can't go there!" << endl;
 		}
-	} else if (target.obtype == TYPE_MONSTER) {
+	} else if (target.type == TYPE_MONSTER) {
 		game_monster *nm = reinterpret_cast<game_monster *> (target.target);
 		cout << "Go through a monster?" << endl;
 	} else {
@@ -718,11 +760,11 @@ void doLook() {
 	//vector<game_item> *pi = &p->items;
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
-	if(target.obtype != TYPE_NONE) {
-		if(target.obtype == TYPE_ITEM) {
+	if(target.type != TYPE_NONE) {
+		if(target.type == TYPE_ITEM) {
 			game_item *ni = reinterpret_cast<game_item *> (target.target);
 			cout << getDescription(ni) << endl;
-		} else if (target.obtype == TYPE_MONSTER) {
+		} else if (target.type == TYPE_MONSTER) {
 			game_monster *nm = reinterpret_cast<game_monster *> (target.target);
 			cout << getDescription(nm) << endl;
 		} else {
@@ -743,10 +785,13 @@ void doLook() {
 			}
 			if(ri->size() > 0) {
 				cout << "You also see: " << endl;
-				for(int i=0; i < ri->size(); i++) {
+				for(game_item gi : *ri) {
+					cout << "a " << getDescriber(&gi) << endl;
+				}
+				/*for(int i=0; i < (int)ri->size(); i++) {
 					game_item *gi = &ri->at(i);
 					cout << "a " << getDescriber(gi) << endl;
-				}
+				}*/
 			}
 
 			if (t->isArmed) {
@@ -768,6 +813,46 @@ void doTake() {
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
+	vector<game_item> *ir = &r->items;
+	vector<game_item> *ip = &p->items;
+	if (target.type != TYPE_NONE) {
+		if (target.type == TYPE_ITEM) {
+			game_item *ni = reinterpret_cast<game_item *> (target.target);
+			if(!checkB(ni->flags, BIT_IMMOBILE)) {
+				// item can be taken
+				cout << target.ptype << endl << endl;
+				if(target.ptype == TYPE_ROOM) {
+					// alternative code for OO
+					//vector<game_item> *ri = &(reinterpret_cast<game_room *> (target.parent))->items;
+					for(int i=0; i < (int)ir->size(); i++) {
+						// match target with inventory
+						if(areEqual(&ir->at(i), ni)) {
+							cout << "You pick up the " << ni->name << endl;
+							// add to inventory
+							ip->push_back(*ni);
+							// erase from old item list
+							ir->erase(ir->begin() + i);
+						}
+					}
+
+				} else if(target.ptype == TYPE_PLAYER) {
+					cout << "You're already carrying that." << endl;
+				} else {
+					cout << "doTake() error: How did we arrive here?" << endl;
+				}
+			} else {
+				// immobile
+				cout << "You can't carry that!" << endl;
+			}
+		} else if (target.type == TYPE_MONSTER) {
+			game_monster *nm = reinterpret_cast<game_monster *> (target.target);
+			cout << "I think the " << getName(m) << " might have a problem with that." << endl;
+		} else {
+			// needs to be fixed later - doesn't work
+			cout << "Take what?" << endl;
+			//cout << getDescription(reinterpret_cast<game_item *> (target.target)) << endl;
+		}
+	}
 }
 
 
@@ -822,155 +907,6 @@ bool isOpeningRoom(int r) {
 	if (r == FOREST || r == FOREST_2 || r == FOREST_3 || r == PIT_1 || r == PIT_2) return true;
 	return false;
 }
-
-
-void initRooms() {
-	rooms = new game_room[GAME_ROOM_SIZE];
-	for(int i=0;i < GAME_ROOM_SIZE; i++) {
-		game_room *r = &rooms[i];
-		game_monster *m = &r->monster;
-		game_trap *t = &rooms[i].trap;
-		if(!isNeutralRoom(i)) {
-			t->isArmed = rand() % 2;
-			r->hasRelic = rand() % 2;
-			if(rand() % 2) {
-				*m = createMonster(MONSTER_RANDOM);
-			}
-		}
-	}
-
-	// neutral rooms
-	rooms[FOREST].name = "Running through the forest";
-	rooms[FOREST].description = "In the distance, you hear a faint siren echoing through the trees. \
-The trolls are after you, and you can hear their footsteps getting louder. You barely managed to slip \
-out unscathed after they knocked your door down, but they were in fast pursuit. As you made your escape, \
-they had already slain the chief and seemed to be rounding people up - anyone who tried to run was killed, \
-but you were the lucky one and got a head-start. Their fates (and your own) rest on that your feet rumble \
-faster than the troll's bellies.";
-	rooms[FOREST].transition = "You continue your sprint, trying to outpace the trolls in pursuit. The branches \
-seem to unfurl towards you like outstretched fingers, frantically clawing at your face and clothes - much like \
-your pursuers, if they catch you. One thought dominates all, \'Don't stop: just keep moving.\'";
-	rooms[FOREST_2].transition = "As you bustle through the dark forest, it dawns on you that you no longer \
-have any idea where you are - you've never been this deep before, let alone in complete darkness. That doesn't \
-stop your running though - trolls are much scarier than darkness. Suddenly, with one errant step, the ground \
-exits beneath you, and you find yourself tumbling into the unknown.";
-	rooms[FOREST_3].transition = "You continue your nascent plunge, devoid of rhyme or reason. After jarring \
-yourself several times against the mysteries of the night, you finally hit ground with a dull thud, knocking \
-the breath from your chest. You take a second to recover, only to realize that you there is no way out of this \
-pit as it dawns on you may have fallen into a trap. You feel around until you locate a gap in the darkness and \
-frantically begin your descent, hopefully out of danger \
-for a change?";
-	rooms[PIT_1].transition = "As you continue into the hole, you catch a glimpse of light in the distance, \
-but give pause when you realize that there is no natural light underground. You slow your stride and quietly move \
-towards the light, when at once, you jerk yourself to a stop as you notice a large chasm taking shape shape \
-between you and your destination. It seems your only hope is to try to jump it";
-	rooms[PIT_2].transition = "Gathering up your courage, you jump.";
-	rooms[ENTRY].description = "You jumped and are now in front of a large metal door. There's a hole you can crawl \
-through";
-	rooms[ENTRY].transition = "You crawl down into the hole and begin shimmying through. Loose dirt flies up in \
-your hair and on your face and clothes, and the hole seems to narrower. With significant labor, you squeeze through";
-	rooms[ENTRY].items.push_back(createItem(ITEM_HOLE));
-	rooms[CORRIDOR].name = "Corridor, Chamber";
-	"You scan the pit and see an opening on the wall.You approach it.As you \
-approach the opening you notice that torches line the walls lighting the room you've just walked into. You open the door and head down the dimly lit passage. After a short while, the passage opens into a room.";
-	rooms[CORRIDOR].description = "It's dim, but you can see\
-that there are five doors on the wall opposite you. As you cautiously walk closer to the doors, you hear a loud rumble, as if \
-the earth itself is being split in two. Without warning the entrance behind you caves in. You're trapped. Your only choice is to\
-go through one of the doors ahead of you. As you move closer, you can make out more details about the doors. On the left there are\
-two doors, one red and one green. On the right there are two more, one blue and one yellow. In the center there is a massive, ornately\
-decorated door that appears to be made of solid gold.";
-	rooms[CORRIDOR].items.push_back(createItem(ITEM_BLUE_DOOR));
-	rooms[CORRIDOR].items.push_back(createItem(ITEM_GREEN_DOOR));
-	rooms[CORRIDOR].items.push_back(createItem(ITEM_RED_DOOR));
-	rooms[CORRIDOR].items.push_back(createItem(ITEM_YELLOW_DOOR));
-	rooms[CORRIDOR].items.push_back(createItem(ITEM_GOLD_DOOR));
-	//If this description needs to be less detailed in order to reuse the room later in the program, we can go with something like, You enter
-	//the main room of the cave system. Opposite you are 5 doors, one red, one green, one blue and one yellow. In the center is a massive
-	//golden door. Which door will you go through?
-	rooms[RED_EXIT].name = "Red Door, Narrow Passage";
-	rooms[RED_EXIT].description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-	rooms[GREEN_EXIT].name = "Green Door, Narrow Passage";
-	rooms[GREEN_EXIT].description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-	rooms[BLUE_EXIT].name = "Blue Door, Narrow Passage";
-	rooms[BLUE_EXIT].description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-	rooms[YELLOW_EXIT].name = "Yellow Door, Narrow Passage";
-	rooms[YELLOW_EXIT].description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-
-	// populated rooms - TODO
-	rooms[RED_1].name = "Small Room";
-	rooms[RED_1].description = "You come into a room that is fairly small and nondescript. It is lit by a few torches on the wall. What would\
-	you like to do?";
-	rooms[RED_2].name = "Small Pantry";
-	rooms[RED_2].description = "You enter the room, and you can tell that it is, or was, a pantry. There are cupboards along the walls and what\
-	appears to be several preparation tables in the center of the room.";
-	rooms[RED_3].name = "Large Sleeping Quarters";
-	rooms[RED_3].description = "When you enter this room you see several rows of bunk beds that stretch off into the distance, fading into the \
-	dark. As far as you can tell, there is nothing, or no one, sleeping in the beds.";
-	rooms[RED_4].name = "Medium Library";
-	rooms[RED_4].description = "As you cross the threshhold of this room, you see rows of bookcases all filled to the brim with books. This is \
-	one of the brightest rooms you've been in so far, thanks to the chandeliers hanging from the ceiling.";
-	rooms[RED_5].name = "Large Forge";
-	rooms[RED_5].description = "As you enter the room, the first thing you notice is that it is very hot. You see the forge and realize that must\
-	be where the heat is coming from. There are workbenches all over the room with tools scattered haphazardly across them.";
-	rooms[GREEN_1].name = "Small Storage Room";
-	rooms[GREEN_1].description = "This room is another small storage room. It has several cabinets in it, as well as a stack of crates in the corner";
-	rooms[GREEN_2].name = "Medium Kitchen";
-	rooms[GREEN_2].description = "This room has several prep tables as well as a sink to wash dishes, and several ovens. You think of the last meal \
-	that you had. Beef stew. Your stomach rumbles and you're reminded of your hunger.";
-	rooms[GREEN_3].name = "Medium Distillery";
-	rooms[GREEN_3].description = "As you enter the room, you see the remnants of several stills along the edges of the room. In the center is a table\
-	with several empty bottles scattered across the top.";
-	rooms[GREEN_4].name = "Large Training Room";
-	rooms[GREEN_4].description = "Inside this room you see racks of practice weapons as well as several training dummies, two archery targets and a \
-	first aid kit.";
-	rooms[GREEN_5].name = "Large Mage Workshop";
-	rooms[GREEN_5].description = "As you enter this room you see several arcane tables set up. One of the tables has several crystals on it. One of \
-	the crystals is glowing faintly, but you decide it's best if you leave it alone.?";
-	
-	rooms[BLUE_1].name = "Medium Indoor Garden";
-	rooms[BLUE_1].description = "As you come into this room, the first thing that hits you is the smell. There is the overwhelming smell of manure. As\
-	you cover your nose and mouth to keep from gagging, you see that all manner of moss, lichens, and mushrooms are growing in planter boxes filled \
-	with what you can only guess is manure.";
-	rooms[BLUE_2].name = "Large Library";
-	rooms[BLUE_2].description = "In this room there are hundreds of bookcases teeming with books. As you glance around you see several that appear to be\
-	bound in solid gold. They are beautiful but you decide to keep moving.";
-	rooms[BLUE_3].name = "Burnt Mage Workshop";
-	rooms[BLUE_3].description = "Once in this room you can see that it is a mage's workshop. Or it was. It seems as though something went horribly wrong\
-	when it was last used. Everything inside is burnt to a crisp, and in the center of the room are the splintered remains of an arcane table.";
-	rooms[BLUE_4].name = "Large Pantry";
-	rooms[BLUE_4].description = "You emerge into a large pantry with al sorts of dried meats and cheeses hanging from pegs in the rafters. Despite your \
-	hunger, you know that you should not stop and eat.";
-	rooms[BLUE_5].name = "Large Archery Range";
-	rooms[BLUE_5].description = "Upon entering this room, you see that it is a large indoor archery range. There is a row of archery targets that stretches\
-	off into the depths of the darkness.";
-	rooms[YELLOW_1].name = "Large Tavern";
-	rooms[YELLOW_1].description = "You come into this room and see that it is a tavern. There are several tables set up, with chairs, as well as a row of bar\
-	stools set up along the bar. You see the tap handles behind the bar and you wish that you had the time to enjoy a pint.";
-	rooms[YELLOW_2].name = "Large Armory";
-	rooms[YELLOW_2].description = "Once you are in this room, you see racks of weapons lined up in the room. All manner of weapons are stored in the racks,\
-	swords, maces, warhammers, spears, and many more. In the center of the room is a row of many workbenches littered with an assortment of hammers, tongs\
-	whetstones and other various tools.";
-	rooms[YELLOW_3].name = "Large Dining Hall";
-		rooms[YELLOW_3].description = "In this room you see rows of tables lined up stretching into the distance. There are plates at the tables and a candleabra\
-	on each table.";
-	rooms[YELLOW_4].name = "Medium Latrine";
-	rooms[YELLOW_4].description = "You enter this room and see that there are several stalls with toilets on one side, and on the other there are tubs lined up\
-	for bathing. You are surprised that it doesn't smell worse than it does.";
-	rooms[YELLOW_5].name = "Large Stable"; \
-		rooms[YELLOW_5].description = "Upon entering this room, you realize you've stumbled across a stable. There are several horses in the stalls one side of the\
-	room and on the other there are several large bales of hay. You are thankful for the signs of life the horses bring you.";
-	rooms[BOSS_ENTRY].name = "Large Golden Door";
-	rooms[BOSS_ENTRY].description = "You approach the large golden door with the four keys. As you unlock each lock, one by one, they fall to the ground. As the\
-	final lock hits the ground you hear a rumbling and the room starts to shake slightly. The massive doors swing open and there is a blazinf light on the other\
-	side of the doors.";
-	rooms[BOSS].name = "Large Throne Room";
-	rooms[BOSS].description = "As you step through the doors, you find yourself in a brightly lit throne room, with tall vaulted ceilings and many paintings on the \
-	\nthe wall. There is a roaring fire in the fireplace on one wall, and across from you you see a massive golden throne.";
-	rooms[EXIT].name = "Dungeon Exit";
-	rooms[EXIT].description = "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in\
-	\n the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of ";
-	// populated rooms - TODO
-};
 
 
 void monsterDeath(game_monster *m) {
@@ -1079,16 +1015,23 @@ game_item createItem(int id) {
 			newItem.name = "fists";
 			newItem.adjectives = "";
 			newItem.description = "Your old chums, law and order. They haven't let you down yet.";
-			newItem.type = ITEM_FIST;
+			newItem.type = id;
 			setB(newItem.flags, BIT_WEAPON);
 		break;
+		case ITEM_CLAW:
+			newItem.name = "claws";
+			newItem.adjectives = "sharp";
+			newItem.description = "Enhanced fingernails. The pointy-ends face out.";
+			newItem.type = id;
+			setB(newItem.flags, BIT_WEAPON);
+			break;
 		case ITEM_RED_DOOR:
 			newItem.name = "door";
 			newItem.adjectives = "large red steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			newItem.type = ITEM_RED_DOOR;
 			setB(newItem.flags, BIT_EXIT);
+			setB(newItem.flags, BIT_IMMOBILE);
 			newItem.prop1 = RED_1;
 			break;
 		case ITEM_GREEN_DOOR:
@@ -1096,8 +1039,8 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.adjectives = "large green steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			newItem.type = ITEM_GREEN_DOOR;
 			setB(newItem.flags, BIT_EXIT);
+			setB(newItem.flags, BIT_IMMOBILE);
 			newItem.prop1 = BLUE_1;
 			break;
 		case ITEM_BLUE_DOOR:
@@ -1105,8 +1048,8 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.adjectives = "large blue steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			newItem.type = ITEM_BLUE_DOOR;
 			setB(newItem.flags, BIT_EXIT);
+			setB(newItem.flags, BIT_IMMOBILE);
 			newItem.prop1 = BLUE_1;
 			break;
 		case ITEM_YELLOW_DOOR:
@@ -1114,8 +1057,8 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.adjectives = "large yellow steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			newItem.type = ITEM_YELLOW_DOOR;
 			setB(newItem.flags, BIT_EXIT);
+			setB(newItem.flags, BIT_IMMOBILE);
 			newItem.prop1 = YELLOW_1;
 			break;
 		case ITEM_GOLD_DOOR:
@@ -1123,24 +1066,23 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.adjectives = "large gold steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			newItem.type = ITEM_YELLOW_DOOR;
 			newItem.prop1 = BOSS_ENTRY;
 			setB(newItem.flags, BIT_EXIT);
+			setB(newItem.flags, BIT_IMMOBILE);
 			break;
 		case ITEM_HOLE:
 			newItem.name = "burrow";
 			newItem.adjectives = "small rounded";
 			newItem.description = "A small burrow is dug into the wall here, though by the markings, you aren't sure \
 what dug it. If you were to squeeze, you could probably make your way through it.";
-			newItem.type = ITEM_HOLE;
 			setB(newItem.flags, BIT_EXIT);
+			setB(newItem.flags, BIT_IMMOBILE);
 			newItem.prop1 = CORRIDOR;
 			break;
 		case ITEM_DAGGER:
 			newItem.name = "dagger";
 			newItem.adjectives = "small";
 			newItem.description = "A small dagger.";
-			newItem.type = ITEM_WEAPON;
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 2;
 			break;
@@ -1148,7 +1090,6 @@ what dug it. If you were to squeeze, you could probably make your way through it
 			newItem.name = "dagger";
 			newItem.adjectives = "small";
 			newItem.description = "A small dagger.";
-			newItem.type = ITEM_WEAPON;
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 3;
 			break;
@@ -1156,7 +1097,6 @@ what dug it. If you were to squeeze, you could probably make your way through it
 			newItem.name = "rapier";
 			newItem.adjectives = "rusty";
 			newItem.description = "An old rusty rapier.";
-			newItem.type = ITEM_WEAPON;
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 4;
 			break;
@@ -1164,7 +1104,6 @@ what dug it. If you were to squeeze, you could probably make your way through it
 			newItem.name = "longsword";
 			newItem.adjectives = "shiny";
 			newItem.description = "A shiny longsword. It looks like it was recently polished.";
-			newItem.type = ITEM_WEAPON;
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 5;
 			break;
@@ -1173,7 +1112,6 @@ what dug it. If you were to squeeze, you could probably make your way through it
 			newItem.adjectives = "weighted";
 			newItem.description = "A weighted broadsword, designed to maximize the force of a swing \
 without upsetting the balance.";
-			newItem.type = ITEM_WEAPON;
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 7;
 			break;
@@ -1182,7 +1120,6 @@ without upsetting the balance.";
 			newItem.adjectives = "two-handed";
 			newItem.description = "A massive two-handed sword. Anyone hit by this thing is going to be \
 in some serious pain";
-			newItem.type = ITEM_WEAPON;
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 9;
 		break;
@@ -1190,6 +1127,7 @@ in some serious pain";
 			cout << "createItem(): unknown id (" << id << ")" << endl;
 		break;
 	}
+	newItem.type = id;
 	return newItem;
 };
 
@@ -1250,3 +1188,221 @@ void newHiScores() {
 	}
 	outFile.close();
 }*/
+
+
+void initRooms() {
+	rooms = new game_room[GAME_ROOM_SIZE];
+	for (int i = 0; i < GAME_ROOM_SIZE; i++) {
+		game_room *r = &rooms[i];
+		game_monster *m = &r->monster;
+		game_trap *t = &rooms[i].trap;
+		if (!isNeutralRoom(i)) {
+			t->isArmed = rand() % 2;
+			r->hasRelic = rand() % 2;
+			if (rand() % 2) {
+				*m = createMonster(MONSTER_RANDOM);
+			}
+		}
+	}
+
+	// neutral rooms
+	game_room *r = &rooms[FOREST];
+	r->name = "Running through the forest";
+	r->description = "In the distance, you hear a faint siren echoing through the trees. \
+The trolls are after you, and you can hear their footsteps getting louder. You barely managed to slip \
+out unscathed after they knocked your door down, but they were in fast pursuit. As you made your escape, \
+they had already slain the chief and seemed to be rounding people up - anyone who tried to run was killed, \
+but you were the lucky one and got a head-start. Their fates (and your own) rest on that your feet rumble \
+faster than the troll's bellies.";
+	r->transition = "You continue your sprint, trying to outpace the trolls in pursuit. The branches \
+seem to unfurl towards you like outstretched fingers, frantically clawing at your face and clothes - much like \
+your pursuers, if they catch you. One thought dominates all, \'Don't stop: just keep moving.\'";
+	setB(r->flags, BIT_RUNNING);
+
+	r = &rooms[FOREST_2];
+	r->transition = "As you bustle through the dark forest, it dawns on you that you no longer \
+have any idea where you are - you've never been this deep before, let alone in complete darkness. That doesn't \
+stop your running though - trolls are much scarier than darkness. Suddenly, with one errant step, the ground \
+exits beneath you, and you find yourself tumbling into the unknown.";
+
+	r = &rooms[FOREST_3];
+	r->transition = "You continue your nascent plunge, devoid of rhyme or reason. After jarring \
+yourself several times against the mysteries of the night, you finally hit ground with a dull thud, knocking \
+the breath from your chest. You take a second to recover, only to realize that you there is no way out of this \
+pit as it dawns on you may have fallen into a trap. You feel around until you locate a gap in the darkness and \
+frantically begin your descent, hopefully out of danger \
+for a change?";
+
+	r = &rooms[PIT_1];
+	r->transition = "As you continue into the hole, you catch a glimpse of light in the distance, \
+but give pause when you realize that there is no natural light underground. You slow your stride and quietly move \
+towards the light, when at once, you jerk yourself to a stop as you notice a large chasm taking shape shape \
+between you and your destination. It seems your only hope is to try to jump it";
+
+	r = &rooms[PIT_2];
+	r->transition = "Gathering up your courage, you jump.";
+
+	r = &rooms[ENTRY];
+	r->description = "You jumped and are now in front of a large metal door. There's a hole you can crawl \
+through";
+	r->transition = "You crawl down into the hole and begin shimmying through. Loose dirt flies up in \
+your hair and on your face and clothes, and the hole seems to narrower. With significant labor, you squeeze through";
+	r->items.push_back(createItem(ITEM_HOLE));
+
+	r = &rooms[CORRIDOR];
+	r->name = "Corridor, Chamber";
+	"You scan the pit and see an opening on the wall.You approach it.As you \
+approach the opening you notice that torches line the walls lighting the room you've just walked into. You open the door and head down the dimly lit passage. After a short while, the passage opens into a room.";
+	r->description = "It's dim, but you can see\
+that there are five doors on the wall opposite you. As you cautiously walk closer to the doors, you hear a loud rumble, as if \
+the earth itself is being split in two. Without warning the entrance behind you caves in. You're trapped. Your only choice is to\
+go through one of the doors ahead of you. As you move closer, you can make out more details about the doors. On the left there are\
+two doors, one red and one green. On the right there are two more, one blue and one yellow. In the center there is a massive, ornately\
+decorated door that appears to be made of solid gold.";
+	r->items.push_back(createItem(ITEM_BLUE_DOOR));
+	r->items.push_back(createItem(ITEM_GREEN_DOOR));
+	r->items.push_back(createItem(ITEM_RED_DOOR));
+	r->items.push_back(createItem(ITEM_YELLOW_DOOR));
+	r->items.push_back(createItem(ITEM_GOLD_DOOR));
+	r->items.push_back(createItem(ITEM_DAGGER));
+
+	//If this description needs to be less detailed in order to reuse the room later in the program, we can go with something like, You enter
+	//the main room of the cave system. Opposite you are 5 doors, one red, one green, one blue and one yellow. In the center is a massive
+	//golden door. Which door will you go through?
+
+	r = &rooms[RED_EXIT];
+	r->name = "Red Door, Narrow Passage";
+	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
+	// transition text: ejected back into corridor
+
+	r = &rooms[GREEN_EXIT];
+	r->name = "Green Door, Narrow Passage";
+	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
+
+	r = &rooms[BLUE_EXIT];
+	r->name = "Blue Door, Narrow Passage";
+	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
+
+	r = &rooms[YELLOW_EXIT];
+	r->name = "Yellow Door, Narrow Passage";
+	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
+
+	// populated rooms - TODO
+	r = &rooms[RED_1];
+	r->name = "Small Room";
+	r->description = "You come into a room that is fairly small and nondescript - the smell of stale air pierces your nostrils. It is \
+lit by a few torches on the wall.";
+
+	r = &rooms[RED_2];
+	r->name = "Small Pantry";
+	r->description = "You enter the room, and you can tell that it is, or was, a pantry. There are cupboards along the walls and what\
+	appears to be several preparation tables in the center of the room.";
+
+	r = &rooms[RED_3];
+	r->name = "Large Sleeping Quarters";
+	r->description = "When you enter this room you see several rows of bunk beds that stretch off into the distance, fading into the \
+	dark. As far as you can tell, there is nothing, or no one, sleeping in the beds.";
+
+	r = &rooms[RED_4];
+	r->name = "Medium Library";
+	r->description = "As you cross the threshhold of this room, you see rows of bookcases all filled to the brim with books. This is \
+	one of the brightest rooms you've been in so far, thanks to the chandeliers hanging from the ceiling.";
+
+	r = &rooms[RED_5];
+	r->name = "Large Forge";
+	r->description = "As you enter the room, the first thing you notice is that it is very hot. You see the forge and realize that must\
+	be where the heat is coming from. There are workbenches all over the room with tools scattered haphazardly across them.";
+
+	r = &rooms[GREEN_1];
+	r->name = "Small Storage Room";
+	r->description = "This room is another small storage room. It has several cabinets in it, as well as a stack of crates in the corner";
+
+	r = &rooms[GREEN_2];
+	r->name = "Medium Kitchen";
+	r->description = "This room has several prep tables as well as a sink to wash dishes, and several ovens. You think of the last meal \
+	that you had. Beef stew. Your stomach rumbles and you're reminded of your hunger.";
+
+	r = &rooms[GREEN_3];
+	r->name = "Medium Distillery";
+	r->description = "As you enter the room, you see the remnants of several stills along the edges of the room. In the center is a table\
+	with several empty bottles scattered across the top.";
+
+	r = &rooms[GREEN_4];
+	rooms[GREEN_4].name = "Large Training Room";
+	rooms[GREEN_4].description = "Inside this room you see racks of practice weapons as well as several training dummies, two archery targets and a \
+	first aid kit.";
+
+	r = &rooms[GREEN_5];
+	rooms[GREEN_5].name = "Large Mage Workshop";
+	rooms[GREEN_5].description = "As you enter this room you see several arcane tables set up. One of the tables has several crystals on it. One of \
+	the crystals is glowing faintly, but you decide it's best if you leave it alone.?";
+
+	r = &rooms[BLUE_1];
+	rooms[BLUE_1].name = "Medium Indoor Garden";
+	rooms[BLUE_1].description = "As you come into this room, the first thing that hits you is the smell. There is the overwhelming smell of manure. As\
+	you cover your nose and mouth to keep from gagging, you see that all manner of moss, lichens, and mushrooms are growing in planter boxes filled \
+	with what you can only guess is manure.";
+
+	r = &rooms[BLUE_2];
+	rooms[BLUE_2].name = "Large Library";
+	rooms[BLUE_2].description = "In this room there are hundreds of bookcases teeming with books. As you glance around you see several that appear to be\
+	bound in solid gold. They are beautiful but you decide to keep moving.";
+
+	r = &rooms[BLUE_3];
+	rooms[BLUE_3].name = "Burnt Mage Workshop";
+	rooms[BLUE_3].description = "Once in this room you can see that it is a mage's workshop. Or it was. It seems as though something went horribly wrong\
+	when it was last used. Everything inside is burnt to a crisp, and in the center of the room are the splintered remains of an arcane table.";
+
+	r = &rooms[BLUE_4];
+	rooms[BLUE_4].name = "Large Pantry";
+	rooms[BLUE_4].description = "You emerge into a large pantry with al sorts of dried meats and cheeses hanging from pegs in the rafters. Despite your \
+	hunger, you know that you should not stop and eat.";
+
+	r = &rooms[BLUE_5];
+	rooms[BLUE_5].name = "Large Archery Range";
+	rooms[BLUE_5].description = "Upon entering this room, you see that it is a large indoor archery range. There is a row of archery targets that stretches\
+	off into the depths of the darkness.";
+
+	r = &rooms[YELLOW_1];
+	rooms[YELLOW_1].name = "Large Tavern";
+	rooms[YELLOW_1].description = "You come into this room and see that it is a tavern. There are several tables set up, with chairs, as well as a row of bar\
+	stools set up along the bar. You see the tap handles behind the bar and you wish that you had the time to enjoy a pint.";
+
+	r = &rooms[YELLOW_2];
+	rooms[YELLOW_2].name = "Large Armory";
+	rooms[YELLOW_2].description = "Once you are in this room, you see racks of weapons lined up in the room. All manner of weapons are stored in the racks,\
+	swords, maces, warhammers, spears, and many more. In the center of the room is a row of many workbenches littered with an assortment of hammers, tongs\
+	whetstones and other various tools.";
+
+	r = &rooms[YELLOW_3];
+	rooms[YELLOW_3].name = "Large Dining Hall";
+	rooms[YELLOW_3].description = "In this room you see rows of tables lined up stretching into the distance. There are plates at the tables and a candleabra\
+	on each table.";
+
+	r = &rooms[YELLOW_4];
+	r->name = "Medium Latrine";
+	r->description = "You enter this room and see that there are several stalls with toilets on one side, and on the other there are tubs lined up\
+	for bathing. You are surprised that it doesn't smell worse than it does.";
+
+	r = &rooms[YELLOW_5];
+	r->name = "Large Stable";
+	r->description = "Upon entering this room, you realize you've stumbled across a stable. There are several horses in the stalls one side of the\
+	room and on the other there are several large bales of hay. You are thankful for the signs of life the horses bring you.";
+
+	r = &rooms[BOSS_ENTRY];
+	r->name = "Large Golden Door";
+	r->description = "You approach the large golden door with the four keys. As you unlock each lock, one by one, they fall to the ground. As the\
+	final lock hits the ground you hear a rumbling and the room starts to shake slightly. The massive doors swing open and there is a blazinf light on the other\
+	side of the doors.";
+
+	r = &rooms[BOSS];
+	r->name = "Large Throne Room";
+	r->description = "As you step through the doors, you find yourself in a brightly lit throne room, with tall vaulted ceilings and many paintings on the \
+	\nthe wall. There is a roaring fire in the fireplace on one wall, and across from you you see a massive golden throne.";
+
+	r = &rooms[EXIT];
+	r->name = "Dungeon Exit";
+	r->description = "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in\
+	\n the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of ";
+	// populated rooms - TODO
+};
