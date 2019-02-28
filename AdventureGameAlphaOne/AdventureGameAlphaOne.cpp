@@ -28,7 +28,8 @@ enum room_states {
 	ROOM_DARK = 1,
 	ROOM_RUNNING = 2,
 	ROOM_NEUTRAL = 4,
-	ROOM_NOEXIT = 8
+	ROOM_NOEXIT = 8,
+	ROOM_JUMPEXIT = 16,
 };
 
 // states for game status
@@ -54,9 +55,11 @@ enum game_commands {
 	COMMAND_FIGHT,
 	COMMAND_SEARCH,
 	COMMAND_GO,
+	COMMAND_INVENTORY,
 	COMMAND_LOOK,
 	COMMAND_USE,
 	COMMAND_DODGE,
+	COMMAND_JUMP,
 	COMMAND_TAKE,
 	COMMAND_RUN,
 	COMMAND_ESCAPE,
@@ -203,9 +206,11 @@ void doContinue();
 void doGo();
 void doFight();
 void doDodge();
+void doJump();
 void doLook();
 void doLookBrief();
 void doUse();
+void doInventory();
 void doTake();
 
 
@@ -264,6 +269,7 @@ struct game_room {
 	game_monster monster;
 	vector<game_item> items;
 	long flags;
+	long prop1, prop2;
 	game_trap trap;
 
 	game_room() {
@@ -462,9 +468,15 @@ int main()
 						case COMMAND_USE:
 							doUse();
 						break;
+						case COMMAND_JUMP:
+							doJump();
+						break;
 						case COMMAND_TAKE:
 							doTake();
 						break;
+						case COMMAND_INVENTORY:
+							doInventory();
+							break;
 						case COMMAND_ESCAPE:
 						break;
 
@@ -598,6 +610,10 @@ int determineAction(vector<string> in) {
 		cid = COMMAND_ESCAPE;
 	} else if (isMatch("dodge", cmd)) {
 		cid = COMMAND_DODGE;
+	} else if (isMatch("inventory", cmd)) {
+		cid = COMMAND_INVENTORY;
+	} else if (isMatch("jump", cmd)) {
+		cid = COMMAND_JUMP;
 	} else if (isMatch("look", cmd)) {
 		cid = COMMAND_LOOK;
 	} else if (isMatch("take", cmd)) {
@@ -688,6 +704,24 @@ void doDodge() {
 		cout << "But there are no traps!" << endl;
 	}
 };
+
+void doJump() {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
+	if(checkB(r->flags, ROOM_JUMPEXIT) > 0) {
+		cout << "Giving yourself enough room for a running start, you take a flying leap into the unknown!" << endl;
+		cout << r->transition;
+		p->rloc = r->prop1;
+		doLookBrief();
+	} else if(target.cmd == TYPE_ITEM) {
+		game_item *ni = reinterpret_cast<game_item *> (target.target);
+		if(target.ptype == TYPE_PLAYER) cout << "Trying to put distance between yourself and your " << ni->name << "?" << endl;
+		else if(target.ptype == TYPE_ROOM) cout << "You jump back from the " << ni->name << "!" << endl;
+		else if(target.ptype == TYPE_PLAYER) cout << "That seems completely impossible." << endl;
+	} else cout << "You bounce up and down like a little kid." << endl;
+}
 
 // doGo()  - written by John
 // GO <exit> - goes through an exit (if it's available).
@@ -830,6 +864,20 @@ void doLook() {
 			}
 		}
 	}
+}
+
+void doInventory() {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	vector<game_item> *pi = &p->items;
+	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
+	cout << "You are carrying ";
+	for (game_item gi : *pi) {
+		cout << "a " << getDescriber(&gi) << "," << endl;
+	}
+	if(pi->size() == 0) cout << "nothing." << endl;
+	else  cout << "." << endl;
 }
 
 void doUse() {
@@ -1300,7 +1348,8 @@ It seems your only hope might be to to jump it.";
 	r->transition = "Gathering up your courage, you take a flying leap over the chasm! As you pass up through the \
 air down to solid ground below you, the fear that was gripped you earlier has been replaced by exhilaration. Maybe \
 this is what you were born to do?";
-	setB(r->flags, ROOM_NOEXIT | ROOM_NEUTRAL);
+	setB(r->flags, ROOM_NOEXIT | ROOM_NEUTRAL | ROOM_JUMPEXIT);
+	r->prop1 = ENTRY;
 
 	r = &rooms[ENTRY];
 	r->description = "You are now in front of a large metal door. There's a hole you can crawl \
@@ -1327,6 +1376,7 @@ decorated door that appears to be made of solid gold.";
 	r->items.push_back(createItem(ITEM_RED_DOOR));
 	r->items.push_back(createItem(ITEM_YELLOW_DOOR));
 	r->items.push_back(createItem(ITEM_GOLD_DOOR));
+	r->items.push_back(createItem(ITEM_BURROW_EXIT));
 	r->items.push_back(createItem(ITEM_DAGGER));
 
 	//If this description needs to be less detailed in order to reuse the room later in the program, we can go with something like, You enter
