@@ -8,32 +8,27 @@
 #include <fstream>
 #include <vector>
 #include <ctime>
-#include <bitset>
 using namespace std;
 
-#define setB(x,y) x |= (1 << y)
 
-#define clearB(x,y) x &= ~(1<< y)
-
-bool checkB(int x, int y) {
-	return (0 == (x & (1 << y))) ? false : true;
-};
-//#define checkB(x,y) ((0u == (x & (1<<y)))?false:true)
-
-#define toggleB(x,y) (x ^= (1<<y))
+#define checkB(flag,bit)  ((flag) & (bit))
+#define setB(var,bit)  ((var) |= (bit))
+#define clearB(var,bit)  ((var) &= ~(bit))
+#define toggleB(var,bit) ((var) ^= (bit))
 
 enum item_states {
 	BIT_IMMOBILE = 1,
 	BIT_EXIT = 2,
-	BIT_POTION = 3,
-	BIT_WEAPON = 4,
-	BIT_ARMOR = 5,
+	BIT_POTION = 4,
+	BIT_WEAPON = 8,
+	BIT_ARMOR = 16,
 };
 
 enum room_states {
-	BIT_DARK = 1,
-	BIT_RUNNING = 2,
-	BIT_NOEXIT = 3
+	ROOM_DARK = 1,
+	ROOM_RUNNING = 2,
+	ROOM_NEUTRAL = 4,
+	ROOM_NOEXIT = 8
 };
 
 // states for game status
@@ -139,8 +134,8 @@ enum game_traps {
 };
 
 enum game_items {
-	ITEM_FIST = -10,
-	ITEM_CLAW,
+	ITEM_FISTS = -10,
+	ITEM_CLAWS,
 	ITEM_NONE = 0,
 	ITEM_RED_KEY,
 	ITEM_BLUE_KEY,
@@ -151,7 +146,8 @@ enum game_items {
 	ITEM_YELLOW_DOOR,
 	ITEM_GREEN_DOOR,
 	ITEM_GOLD_DOOR,
-	ITEM_HOLE,
+	ITEM_BURROW_ENT,
+	ITEM_BURROW_EXIT,
 	ITEM_WEAPON=100,
 	ITEM_DAGGER,
 	ITEM_SCIMITAR,
@@ -198,8 +194,6 @@ bool isMatch(string, string);
 int determineAction(vector<string>);
 void resolveTarget(vector<string>);
 vector<string> getInput();
-bool isOpeningRoom(int);
-bool isNeutralRoom(int);
 void initRooms();
 int d20(int = 0);
 
@@ -232,7 +226,7 @@ public:
 		bonus = 5;
 		gold = 0;
 		rloc = FOREST;
-		weapon = createItem(ITEM_FIST);
+		weapon = createItem(ITEM_FISTS);
 		HP = 3;
 	}
 
@@ -250,7 +244,7 @@ struct game_monster {
 		difficulty = MONSTER_NONE;
 		description = "none";
 		HP = 0;
-		weapon = createItem(ITEM_FIST);
+		weapon = createItem(ITEM_FISTS);
 	}
 };
 
@@ -273,6 +267,7 @@ struct game_room {
 	game_trap trap;
 
 	game_room() {
+		flags = 0;
 		name = description = transition = "";
 		hasRelic = beenVisited = false;
 	}
@@ -285,6 +280,8 @@ struct game_room {
 };
 
 // custom type functions
+bool isRunning(game_room *);
+bool isNeutral(game_room *);
 
 
 struct game_command {
@@ -337,6 +334,23 @@ bool isActive(game_trap *t) {
 
 bool isExit(game_item *i) {
 	if(checkB(i->flags, BIT_EXIT)) return true;
+	return false;
+};
+
+bool hasExit(game_room *i) {
+	if (checkB(i->flags, ROOM_NOEXIT)) return false;
+	return true;
+};
+
+bool isNeutral(game_room *r) {
+	cout << checkB(r->flags, ROOM_NEUTRAL) << endl;
+	if (checkB(r->flags, ROOM_NEUTRAL) > 0) return true;
+	return false;
+};
+
+bool isRunning(game_room *r) {
+	cout << checkB(r->flags, ROOM_RUNNING) << endl;
+	if (checkB(r->flags, ROOM_RUNNING) > 0) return true;
 	return false;
 };
 
@@ -602,7 +616,7 @@ void doFight() {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
-	if (isOpeningRoom(p->rloc)) {
+	if (isRunning(r)) {
 		cout << "Fight? Fight the urge to fight and just RUN!" << endl;
 	} else if (m->difficulty == MONSTER_NONE) {
 		cout << "There is nothing to fight!" << endl;
@@ -638,30 +652,45 @@ void doDodge() {
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
-	if (isOpeningRoom(p->rloc)) {
+	if (isRunning(r)) {
 		cout << "There's no time to look for traps.... just RUN!" << endl;
 	} else if (t->isArmed) {
-		if(m->difficulty != MONSTER_NONE && isLiving(m)) {
-			cout << "You attempt to dodge through the traps with the " + m->name + "in hot pursuit!" << endl;
+		if(isLiving(m)) {
+			cout << "You attempt to dodge through the traps with the " + getName(m) + " in hot pursuit!" << endl;
 		} else {
 			cout << "You attempt to dodge through the traps!" << endl;
 		}
-		int pSuccess = d20(player->bonus);
-		int mSuccess = d20(0);
-		cout << "You rolled: " << pSuccess << endl;
-		cout << "Trap rolled: " << mSuccess << endl;
-		if (pSuccess >= mSuccess) {
+		int pRoll = d20();
+		int tRoll = d20();
+		int mRoll = d20();
+		cout << "You rolled: " << pRoll << endl;
+		cout << "Trap rolled: " << tRoll << endl;
+		if(isLiving(m)) cout << getName(m) << " rolled: " << mRoll << endl;
+
+		if (pRoll >= tRoll) {
 			cout << "You safely manuever through the trap!" << endl;
-			t->isArmed = false;
-		} else if (mSuccess > pSuccess) {
+		} else if (tRoll > pRoll) {
 			cout << "You failed to dodge the trap!" << endl;
 			player->HP--;
 		}
+		if(isLiving(m)) {
+			if (mRoll > tRoll) {
+				cout << "The " << getName(m) << " shucks and shuffles through the trap!" << endl;
+			} else if (tRoll >= mRoll) {
+				cout << "The " << getName(m) << " rolled the wrong way and got hit by the trap!" << endl;
+				m->HP--;
+				if (m->HP <= 0) monsterDeath(m);
+			}
+		}
+		t->isArmed = false;
+
 	} else {
 		cout << "But there are no traps!" << endl;
 	}
 };
 
+// doGo()  - written by John
+// GO <exit> - goes through an exit (if it's available).
 void doGo() {
 	game_room *r = &rooms[player->rloc];
 	game_player *p = player;
@@ -696,9 +725,9 @@ void doContinue() {
 	game_player *p = player;
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
-	if(isOpeningRoom(p->rloc)) {
+	if(isRunning(r)) {
 		cout << "There's no time for walking... RUN!" << endl;
-	} else if(p->rloc == CORRIDOR) {
+	} else if(hasExit(r)) {
 		cout << "There is no obvious path forward." << endl;
 	} else if(isLiving(m)) {
 		cout << "You can't leave until you've vanquished the " + r->monster.name + "!";
@@ -740,13 +769,15 @@ void doRun() {
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
-	if (isOpeningRoom(p->rloc)) {
+	if (isRunning(r)) {
 		cout << r->transition << endl;
 		p->rloc++;
 		r = &rooms[p->rloc];
 		cout << r->name << endl;
-	} else if(p->rloc == CORRIDOR) {
-	
+	} else if(hasExit(r)) {
+		cout << "This is where run should work" << endl;
+	} else if(!hasExit(r)) {
+		cout << "This is where run shouldn't work" << endl;
 	} else {
 		doContinue();
 	}
@@ -773,7 +804,7 @@ void doLook() {
 			//cout << getDescription(reinterpret_cast<game_item *> (target.target)) << endl;
 		}
 	} else {
-		if (isOpeningRoom(p->rloc)) {
+		if (isRunning(r)) {
 			cout << "It's all a blur.... keep RUNNING!" << endl;
 		} else {
 			cout << r->name << endl;
@@ -896,17 +927,17 @@ bool isMatch(string src, string text) {
 	return false;
 };
 
-bool isNeutralRoom(int r) {
+/*bool isNeutralRoom(int r) {
 	if (r == FOREST || r == FOREST_2 || r == FOREST_3 || r == PIT_1 || r == PIT_2 || r == ENTRY || r == CORRIDOR || \
 		r == RED_EXIT || r == GREEN_EXIT || r == BLUE_EXIT || r == YELLOW_EXIT || \
 		r == BOSS_ENTRY || r == EXIT) return true;
 	return false;
-}
+}*/
 
-bool isOpeningRoom(int r) {
+/*bool isOpeningRoom(int r) {
 	if (r == FOREST || r == FOREST_2 || r == FOREST_3 || r == PIT_1 || r == PIT_2) return true;
 	return false;
-}
+}*/
 
 
 void monsterDeath(game_monster *m) {
@@ -914,15 +945,38 @@ void monsterDeath(game_monster *m) {
 	game_room *r = &rooms[p->rloc];
 	vector<game_item> *ir = &r->items;
 	vector<game_item> *im = &m->items;
-	cout << "The " + m->name + " crumbles to the ground lifelessly." << endl;
-	if(im->size() > 0) cout << "His items fall to the ground!" << endl;
-	for(game_item gi : *im) {
-		ir->push_back(gi);
-	}
-	if(m->weapon.type != ITEM_FIST) {
+	switch((rand() % 4) + 1) {
+		case 1:
+			cout << "The " + getName(m) + " crumbles to the ground." << endl;
+		break;
+		case 2:
+			cout << "The " + getName(m) + " lets out a ghostly wail, before collapsing with a dull thud." << endl;
+		break;
+		case 3:
+			cout << "With a loud crash, the " + getName(m) + " falls into death's embrace." << endl;
+		break;
+		case 4:
+			cout << "The " + getName(m) + " is sent face-first into the ground." << endl;
+		break;
+	};
+
+	// check to see if he had a weapon
+	if (m->weapon.type != ITEM_FISTS && m->weapon.type != ITEM_CLAWS) {
+		cout << "His " << getWeapon(m) << " fall to the ground!" << endl;
+		// drop weapon
 		ir->push_back(m->weapon);
 		m->weapon.clear();
 	}
+
+	// check for loot
+	if(im->size() > 0) {
+		cout << "Looks like he may have dropped some items." << endl;
+		// drop carried items
+		for(game_item gi : *im) {
+			ir->push_back(gi);
+		}
+	}
+
 	im->clear();
 };
 
@@ -1011,18 +1065,20 @@ game_monster createMonster(int id) {
 game_item createItem(int id) {
 	game_item newItem;
 	switch(id) {
-		case ITEM_FIST:
+		case ITEM_FISTS:
 			newItem.name = "fists";
 			newItem.adjectives = "";
 			newItem.description = "Your old chums, law and order. They haven't let you down yet.";
 			newItem.type = id;
+			newItem.prop1 = 0;
 			setB(newItem.flags, BIT_WEAPON);
 		break;
-		case ITEM_CLAW:
+		case ITEM_CLAWS:
 			newItem.name = "claws";
 			newItem.adjectives = "sharp";
 			newItem.description = "Enhanced fingernails. The pointy-ends face out.";
 			newItem.type = id;
+			newItem.prop1 = 1;
 			setB(newItem.flags, BIT_WEAPON);
 			break;
 		case ITEM_RED_DOOR:
@@ -1041,7 +1097,7 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			setB(newItem.flags, BIT_EXIT);
 			setB(newItem.flags, BIT_IMMOBILE);
-			newItem.prop1 = BLUE_1;
+			newItem.prop1 = GREEN_1;
 			break;
 		case ITEM_BLUE_DOOR:
 			newItem.name = "door";
@@ -1066,11 +1122,11 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.adjectives = "large gold steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			newItem.prop1 = BOSS_ENTRY;
 			setB(newItem.flags, BIT_EXIT);
 			setB(newItem.flags, BIT_IMMOBILE);
+			newItem.prop1 = BOSS_ENTRY;
 			break;
-		case ITEM_HOLE:
+		case ITEM_BURROW_ENT:
 			newItem.name = "burrow";
 			newItem.adjectives = "small rounded";
 			newItem.description = "A small burrow is dug into the wall here, though by the markings, you aren't sure \
@@ -1078,6 +1134,15 @@ what dug it. If you were to squeeze, you could probably make your way through it
 			setB(newItem.flags, BIT_EXIT);
 			setB(newItem.flags, BIT_IMMOBILE);
 			newItem.prop1 = CORRIDOR;
+			break;
+		case ITEM_BURROW_EXIT:
+			newItem.name = "hole";
+			newItem.adjectives = "small rounded";
+			newItem.description = "It's the hole you came in from. You think you could probably squeeze \
+back through, but you'd probably get all dirty again.";
+			setB(newItem.flags, BIT_EXIT);
+			setB(newItem.flags, BIT_IMMOBILE);
+			newItem.prop1 = ENTRY;
 			break;
 		case ITEM_DAGGER:
 			newItem.name = "dagger";
@@ -1192,18 +1257,6 @@ void newHiScores() {
 
 void initRooms() {
 	rooms = new game_room[GAME_ROOM_SIZE];
-	for (int i = 0; i < GAME_ROOM_SIZE; i++) {
-		game_room *r = &rooms[i];
-		game_monster *m = &r->monster;
-		game_trap *t = &rooms[i].trap;
-		if (!isNeutralRoom(i)) {
-			t->isArmed = rand() % 2;
-			r->hasRelic = rand() % 2;
-			if (rand() % 2) {
-				*m = createMonster(MONSTER_RANDOM);
-			}
-		}
-	}
 
 	// neutral rooms
 	game_room *r = &rooms[FOREST];
@@ -1217,13 +1270,14 @@ faster than the troll's bellies.";
 	r->transition = "You continue your sprint, trying to outpace the trolls in pursuit. The branches \
 seem to unfurl towards you like outstretched fingers, frantically clawing at your face and clothes - much like \
 your pursuers, if they catch you. One thought dominates all, \'Don't stop: just keep moving.\'";
-	setB(r->flags, BIT_RUNNING);
+	setB(r->flags, ROOM_NEUTRAL | ROOM_RUNNING);
 
 	r = &rooms[FOREST_2];
 	r->transition = "As you bustle through the dark forest, it dawns on you that you no longer \
 have any idea where you are - you've never been this deep before, let alone in complete darkness. That doesn't \
 stop your running though - trolls are much scarier than darkness. Suddenly, with one errant step, the ground \
 exits beneath you, and you find yourself tumbling into the unknown.";
+	setB(r->flags, ROOM_NEUTRAL | ROOM_RUNNING);
 
 	r = &rooms[FOREST_3];
 	r->transition = "You continue your nascent plunge, devoid of rhyme or reason. After jarring \
@@ -1232,22 +1286,29 @@ the breath from your chest. You take a second to recover, only to realize that y
 pit as it dawns on you may have fallen into a trap. You feel around until you locate a gap in the darkness and \
 frantically begin your descent, hopefully out of danger \
 for a change?";
+	setB(r->flags, ROOM_NEUTRAL | ROOM_RUNNING);
 
 	r = &rooms[PIT_1];
-	r->transition = "As you continue into the hole, you catch a glimpse of light in the distance, \
-but give pause when you realize that there is no natural light underground. You slow your stride and quietly move \
-towards the light, when at once, you jerk yourself to a stop as you notice a large chasm taking shape shape \
-between you and your destination. It seems your only hope is to try to jump it";
+	r->transition = "As you continue deeper down into the hole, you catch a glimpse of light in the distance, \
+but give pause when you realize that there is no natural light underground. Maybe someone else made it \
+out too? You slow your stride and begin to ready yourself for action.";
+	setB(r->flags, ROOM_NEUTRAL | ROOM_RUNNING);
 
 	r = &rooms[PIT_2];
-	r->transition = "Gathering up your courage, you jump.";
+	r->description = "A large chasm has taken shape between you and the lights, bringing your journey to a halt. \
+It seems your only hope might be to to jump it.";
+	r->transition = "Gathering up your courage, you take a flying leap over the chasm! As you pass up through the \
+air down to solid ground below you, the fear that was gripped you earlier has been replaced by exhilaration. Maybe \
+this is what you were born to do?";
+	setB(r->flags, ROOM_NOEXIT | ROOM_NEUTRAL);
 
 	r = &rooms[ENTRY];
-	r->description = "You jumped and are now in front of a large metal door. There's a hole you can crawl \
+	r->description = "You are now in front of a large metal door. There's a hole you can crawl \
 through";
 	r->transition = "You crawl down into the hole and begin shimmying through. Loose dirt flies up in \
-your hair and on your face and clothes, and the hole seems to narrower. With significant labor, you squeeze through";
-	r->items.push_back(createItem(ITEM_HOLE));
+your hair and on your face and clothes(not that you weren't already filthy). With significant labor, \
+you squeeze through";
+	r->items.push_back(createItem(ITEM_BURROW_ENT));
 
 	r = &rooms[CORRIDOR];
 	r->name = "Corridor, Chamber";
@@ -1259,6 +1320,8 @@ the earth itself is being split in two. Without warning the entrance behind you 
 go through one of the doors ahead of you. As you move closer, you can make out more details about the doors. On the left there are\
 two doors, one red and one green. On the right there are two more, one blue and one yellow. In the center there is a massive, ornately\
 decorated door that appears to be made of solid gold.";
+	setB(r->flags, ROOM_NEUTRAL);
+	setB(r->flags, ROOM_NOEXIT);
 	r->items.push_back(createItem(ITEM_BLUE_DOOR));
 	r->items.push_back(createItem(ITEM_GREEN_DOOR));
 	r->items.push_back(createItem(ITEM_RED_DOOR));
@@ -1273,19 +1336,23 @@ decorated door that appears to be made of solid gold.";
 	r = &rooms[RED_EXIT];
 	r->name = "Red Door, Narrow Passage";
 	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
+	setB(r->flags, ROOM_NEUTRAL);
 	// transition text: ejected back into corridor
 
 	r = &rooms[GREEN_EXIT];
 	r->name = "Green Door, Narrow Passage";
 	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
+	setB(r->flags, ROOM_NEUTRAL);
 
 	r = &rooms[BLUE_EXIT];
 	r->name = "Blue Door, Narrow Passage";
 	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
+	setB(r->flags, ROOM_NEUTRAL);
 
 	r = &rooms[YELLOW_EXIT];
 	r->name = "Yellow Door, Narrow Passage";
 	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
+	setB(r->flags, ROOM_NEUTRAL);
 
 	// populated rooms - TODO
 	r = &rooms[RED_1];
@@ -1404,5 +1471,19 @@ lit by a few torches on the wall.";
 	r->name = "Dungeon Exit";
 	r->description = "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in\
 	\n the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of ";
+	setB(r->flags, ROOM_NEUTRAL);
 	// populated rooms - TODO
+
+	for (int i = 0; i < GAME_ROOM_SIZE; i++) {
+		game_room *r = &rooms[i];
+		game_monster *m = &r->monster;
+		game_trap *t = &rooms[i].trap;
+		if (checkB(r->flags, ROOM_NEUTRAL)) {
+			t->isArmed = rand() % 2;
+			r->hasRelic = rand() % 2;
+			if (rand() % 2) {
+				*m = createMonster(MONSTER_RANDOM);
+			}
+		}
+	}
 };
