@@ -72,7 +72,8 @@ enum game_object_types {
 	TYPE_ITEM,
 	TYPE_MONSTER,
 	TYPE_PLAYER,
-	TYPE_ROOM
+	TYPE_ROOM,
+	TYPE_UNKNOWN
 };
 
 // states for different types of monsters, organized by difficult(-5 to 5) -10 for not_a_monster and 10 for final boss
@@ -194,24 +195,24 @@ game_item createItem(int);
 vector<string> delimit(const string &, char);
 string trimFirst(string &, char);
 bool isMatch(string, string);
-int determineAction(vector<string>);
-void resolveTarget(vector<string>);
+int determineAction(vector<string> &);
+void resolveTarget(vector<string> &);
 vector<string> getInput();
 void initRooms();
 int d20(int = 0);
 
 // action function prototypes
-void doRun();
-void doContinue();
-void doGo();
-void doFight();
-void doDodge();
-void doJump();
-void doLook();
-void doLookBrief();
-void doUse();
-void doInventory();
-void doTake();
+void doRun(vector<string> &);
+void doContinue(vector<string> &);
+void doGo(vector<string> &);
+void doFight(vector<string> &);
+void doDodge(vector<string> &);
+void doJump(vector<string> &);
+void doLook(vector<string> &);
+void doLookBrief(vector<string> &);
+void doUse(vector<string> &);
+void doInventory(vector<string> &);
+void doTake(vector<string> &);
 
 
 
@@ -294,6 +295,12 @@ struct game_command {
 	int cmd = COMMAND_UNKNOWN;
 	int type=0, ptype=0;
 	void *target, *parent;
+
+	void clear() {
+		cmd = COMMAND_UNKNOWN;
+		type =0, ptype = 0;
+		target = nullptr, parent = nullptr;
+	}
 };
 
 template<class T>
@@ -439,8 +446,6 @@ int main()
 					continue;
 				}
 				// clear target
-				target.type = TYPE_NONE;
-				target.target = nullptr;
 				command = getInput();
 				action = determineAction(command);
 				resolveTarget(command);
@@ -448,34 +453,34 @@ int main()
 				if (action && isLiving(player)) {
 					switch (action) {
 						case COMMAND_CONTINUE:
-							doContinue();
+							doContinue(command);
 						break;
 						case COMMAND_GO:
-							doGo();
+							doGo(command);
 						break;
 						case COMMAND_LOOK:
-							doLook();
+							doLook(command);
 						break;
 						case COMMAND_FIGHT:
-							doFight();
+							doFight(command);
 						break;
 						case COMMAND_DODGE:
-							doDodge();
+							doDodge(command);
 						break;
 						case COMMAND_RUN:
-							doRun();
+							doRun(command);
 						break;
 						case COMMAND_USE:
-							doUse();
+							doUse(command);
 						break;
 						case COMMAND_JUMP:
-							doJump();
+							doJump(command);
 						break;
 						case COMMAND_TAKE:
-							doTake();
+							doTake(command);
 						break;
 						case COMMAND_INVENTORY:
-							doInventory();
+							doInventory(command);
 							break;
 						case COMMAND_ESCAPE:
 						break;
@@ -517,21 +522,20 @@ bool nameMatch(string input) {
 	return false;
 };
 
-void resolveTarget(vector<string> in) {
-	in.erase(in.begin());
+void resolveTarget(vector<string> &in) {
 	// 		if(in.size() > 0 && (in[0].compare("at") == 0 || in[0].size() != 0)) cid = COMMAND_LOOK_AT;
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	vector<game_item> *ir = &r->items;
 	vector<game_item> *ip = &p->items;
-
+	target.clear();
 	// check to ensure there is a command to be parsed
-	if (in.size() > 0) {
 
+	if (in.size() > 0) {
 		// grab target and remove it from vector
 		string targ = in.at(in.size() - 1);
-		in.erase(in.end()-1);
+		in.erase(in.end() - 1);
 
 		// search player items
 		for (int i = 0; i < (int)ip->size(); i++) {
@@ -581,14 +585,13 @@ void resolveTarget(vector<string> in) {
 				target.target = reinterpret_cast<void *>(m);
 			}
 		}
-		
-
+		in.push_back(targ);
 		//if (isMatch(, target)) cout << "Affirmitive match: " << m->name << endl;
 		// search player if (isMatch(p->name, target)) cout << "Affirmitive match: " << m->name << endl;
 	}
 };
 
-int determineAction(vector<string> in) {
+int determineAction(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
@@ -598,6 +601,7 @@ int determineAction(vector<string> in) {
 	int cid;
 	// identify command
 	cmd = in[0];
+	in.erase(in.begin());
 	if (isMatch("fight", cmd)) {
 		cid = COMMAND_FIGHT;
 	} else if (isMatch("run", cmd)) {
@@ -628,7 +632,7 @@ int determineAction(vector<string> in) {
 };
 
 // doFight() - do combat between player and monster
-void doFight() {
+void doFight(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
@@ -663,7 +667,7 @@ void doFight() {
 };
 
 // doDodge() 
-void doDodge() {
+void doDodge(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
@@ -705,27 +709,34 @@ void doDodge() {
 	}
 };
 
-void doJump() {
+void doJump(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
-	if(checkB(r->flags, ROOM_JUMPEXIT) > 0) {
+	if(checkB(r->flags, ROOM_JUMPEXIT) > 0 && in.size() == 0) {
 		cout << "Giving yourself enough room for a running start, you take a flying leap into the unknown!" << endl;
 		cout << r->transition;
 		p->rloc = r->prop1;
-		doLookBrief();
-	} else if(target.cmd == TYPE_ITEM) {
+		doLookBrief(in);
+	} else {
 		game_item *ni = reinterpret_cast<game_item *> (target.target);
 		if(target.ptype == TYPE_PLAYER) cout << "Trying to put distance between yourself and your " << ni->name << "?" << endl;
 		else if(target.ptype == TYPE_ROOM) cout << "You jump back from the " << ni->name << "!" << endl;
 		else if(target.ptype == TYPE_PLAYER) cout << "That seems completely impossible." << endl;
-	} else cout << "You bounce up and down like a little kid." << endl;
+		else if(in.size() == 1 && isMatch("backflip", in[0])) {
+			int pRoll = d20();
+			cout << "You rolled: " << pRoll << "." << endl;
+			if(pRoll >= 5) cout << "You do an incredible backflip!." << endl;
+			else cout << "You turn too far and land on your stomach. You hope no one noticed." << endl;
+		}
+		else cout << "You bounce up and down like a little kid." << endl;
+	}
 }
 
 // doGo()  - written by John
 // GO <exit> - goes through an exit (if it's available).
-void doGo() {
+void doGo(vector<string> &in) {
 	game_room *r = &rooms[player->rloc];
 	game_player *p = player;
 	game_monster *m = &r->monster;
@@ -740,7 +751,7 @@ void doGo() {
 				} else {
 					cout << "You pass through the " << getName(ni) << endl;
 					p->rloc = ni->prop1;
-					doLookBrief();
+					doLookBrief(in);
 				}
 		} else {
 			cout << "You can't go there!" << endl;
@@ -754,14 +765,14 @@ void doGo() {
 }
 
 // doContinue - CONTINUE command, which moves the player forward
-void doContinue() {
+void doContinue(vector<string> &in) {
 	game_room *r = &rooms[player->rloc];
 	game_player *p = player;
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
 	if(isRunning(r)) {
 		cout << "There's no time for walking... RUN!" << endl;
-	} else if(hasExit(r)) {
+	} else if(!hasExit(r)) {
 		cout << "There is no obvious path forward." << endl;
 	} else if(isLiving(m)) {
 		cout << "You can't leave until you've vanquished the " + r->monster.name + "!";
@@ -775,11 +786,11 @@ void doContinue() {
 		r = &rooms[player->rloc];
 		m = &r->monster;
 		cout << "You continue on into the next area..." << endl;
-		doLookBrief();
+		doLookBrief(in);
 	}
 };
 
-void doLookBrief() {
+void doLookBrief(vector<string> &in) {
 	game_room *r = &rooms[player->rloc];
 	game_player *p = player;
 	game_monster *m = &r->monster;
@@ -798,7 +809,7 @@ void doLookBrief() {
 	}
 }
 
-void doRun() {
+void doRun(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
@@ -811,14 +822,14 @@ void doRun() {
 	} else if(hasExit(r)) {
 		cout << "This is where run should work" << endl;
 	} else if(!hasExit(r)) {
-		cout << "This is where run shouldn't work" << endl;
+		cout << "There is no obvious path forward." << endl;
 	} else {
-		doContinue();
+		doContinue(in);
 	}
 }
 
 // doLook - LOOK command, which shows the player what's happening in the room
-void doLook() {
+void doLook(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	vector<game_item> *ri = &r->items;
@@ -866,7 +877,7 @@ void doLook() {
 	}
 }
 
-void doInventory() {
+void doInventory(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	vector<game_item> *pi = &p->items;
@@ -880,14 +891,14 @@ void doInventory() {
 	else  cout << "." << endl;
 }
 
-void doUse() {
+void doUse(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
 }
 
-void doTake() {
+void doTake(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
@@ -1027,6 +1038,14 @@ void monsterDeath(game_monster *m) {
 
 	im->clear();
 };
+
+// d20 function - returns a roll from 1 to 20, +/- bias
+int d20(int bias) {
+	int roll = rand() % 20 + 1;
+	roll += bias;
+	(roll > 20 ? roll = 20 : 0);
+	return roll;
+}
 
 // createMonster - spawns a critter and assigns it stats
 game_monster createMonster(int id) {
@@ -1244,18 +1263,8 @@ in some serious pain";
 	return newItem;
 };
 
-
-
-// d20 function - returns a roll from 1 to 20, +/- bias
-int d20(int bias) {
-	int roll = rand() % 20 + 1;
-	roll += bias;
-	(roll > 20 ? roll = 20 : 0);
-	return roll;
-}
-
 /*
-//Function to display High Scores
+// John's work Function to display High Scores
 void hiScores() {
 	ifstream inFile;
 	inFile.open("High Scores.txt");
