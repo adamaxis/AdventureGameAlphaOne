@@ -499,8 +499,10 @@ int main()
 				initRooms();
 
 				// show first room
-				cout << rooms[player->rloc].name << endl;
-				cout << rooms[player->rloc].description << endl;
+				//cout << rooms[player->rloc].name << endl;
+				//cout << rooms[player->rloc].description << endl;
+				command.clear();
+				doLookBrief(command);
 				// game = running
 				gameState = STATE_PLAYING;
 			break;
@@ -1023,6 +1025,8 @@ void doWield(vector<string> &in) {
 										// add to inventory
 										cout << "You stow away your " << getName(wi) << "." << endl;
 										ip->push_back(*wi);
+										// fix for push_back() messing up ni's pointer
+										ni = &ip->at(i);
 										wi->clear();
 									}
 									cout << "You grip the " << ni->name << " firmly." << endl;
@@ -1081,6 +1085,8 @@ void doWear(vector<string> &in) {
 										// add to inventory
 										cout << "You remove your " << getName(ai) << "." << endl;
 										ip->push_back(*ai);
+										// fix for push_back() messing up ai's pointer
+										ai = &ip->at(i);
 										ai->clear();
 									}
 									cout << "You put on the " << ni->name << endl;
@@ -1811,10 +1817,10 @@ lit by a few torches on the wall.";
 		game_room *r = &rooms[i];
 		game_monster *m = &r->monster;
 		game_trap *t = &rooms[i].trap;
-		if (checkB(r->flags, ROOM_NEUTRAL)) {
+		if (!checkB(r->flags, ROOM_NEUTRAL)) {
 			t->isArmed = rand() % 2;
 			r->hasRelic = rand() % 2;
-			if (rand() % 2) {
+			if (rand() % 4 != 0) {
 				*m = createMonster(MONSTER_RANDOM);
 			}
 		}
