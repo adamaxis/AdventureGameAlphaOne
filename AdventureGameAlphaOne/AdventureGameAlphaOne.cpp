@@ -11,17 +11,38 @@
 using namespace std;
 
 
-#define checkB(flag,bit)  ((flag) & (bit))
-#define setB(var,bit)  ((var) |= (bit))
-#define clearB(var,bit)  ((var) &= ~(bit))
-#define toggleB(var,bit) ((var) ^= (bit))
+const char *FILE_HISCORES = "HighScores.txt";
+const int MAX_SCORES = 5;
+int hiScore[MAX_SCORES+1];
+void newHiScores();
+void readHiScores();
+
+
+inline void setB(long &src, long val) {
+	src |= (val);
+};
+
+inline void clearB(long &src, long val) {
+	src &= ~(val);
+};
+
+inline void toggleB(long &src, long val) {
+	src ^= val;
+};
+
+inline bool checkB(long &src, long val) {
+	return ((src) & (val));
+};
 
 enum item_states {
 	BIT_IMMOBILE = 1,
 	BIT_EXIT = 2,
-	BIT_POTION = 4,
-	BIT_WEAPON = 8,
-	BIT_ARMOR = 16,
+	BIT_BLOCKED_VISIBLE = 4,
+	BIT_LOCKED = 8,
+	BIT_KEY = 16,
+	BIT_POTION = 32,
+	BIT_WEAPON = 64,
+	BIT_ARMOR = 128,
 };
 
 enum room_states {
@@ -63,7 +84,9 @@ enum game_commands {
 	COMMAND_TAKE,
 	COMMAND_RUN,
 	COMMAND_ESCAPE,
-	COMMAND_ENTER
+	COMMAND_ENTER,
+	COMMAND_WEAR,
+	COMMAND_WIELD
 };
 
 // states for different types of objects
@@ -73,7 +96,6 @@ enum game_object_types {
 	TYPE_MONSTER,
 	TYPE_PLAYER,
 	TYPE_ROOM,
-	TYPE_UNKNOWN
 };
 
 // states for different types of monsters, organized by difficult(-5 to 5) -10 for not_a_monster and 10 for final boss
@@ -129,7 +151,9 @@ enum game_locations {
 	YELLOW_EXIT,
 	BOSS_ENTRY,
 	BOSS,
-	EXIT
+	EXIT,
+	SECRET_CHAMBER,
+	END
 };
 
 enum game_traps {
@@ -145,6 +169,7 @@ enum game_items {
 	ITEM_BLUE_KEY,
 	ITEM_YELLOW_KEY,
 	ITEM_GREEN_KEY,
+	ITEM_GOLD_KEY,
 	ITEM_RED_DOOR,
 	ITEM_BLUE_DOOR,
 	ITEM_YELLOW_DOOR,
@@ -152,6 +177,8 @@ enum game_items {
 	ITEM_GOLD_DOOR,
 	ITEM_BURROW_ENT,
 	ITEM_BURROW_EXIT,
+	ITEM_SECRET_ENT,
+	ITEM_SECRET_EXIT,
 	ITEM_WEAPON=100,
 	ITEM_DAGGER,
 	ITEM_SCIMITAR,
@@ -173,6 +200,9 @@ struct game_item {
 	int prop1 = 0;
 	int prop2 = 0;
 	int id;
+
+	// isExit - prop1 contains exit ID
+	// isLocked - prop2 contains key ID
 
 	game_item() {
 		id = rand();
@@ -213,6 +243,9 @@ void doLookBrief(vector<string> &);
 void doUse(vector<string> &);
 void doInventory(vector<string> &);
 void doTake(vector<string> &);
+void doUse(vector<string> &);
+void doWield(vector<string> &);
+void doWear(vector<string> &);
 
 
 
@@ -313,8 +346,6 @@ int getDamage(T *entity) {
 	return entity->weapon.prop1;
 };
 
-
-
 template<class T>
 string getDescriber(T *entity) {
 	return (entity->adjectives + " " + entity->name);
@@ -357,18 +388,20 @@ bool hasExit(game_room *i) {
 
 bool isNeutral(game_room *r) {
 	cout << checkB(r->flags, ROOM_NEUTRAL) << endl;
-	if (checkB(r->flags, ROOM_NEUTRAL) > 0) return true;
+	if (checkB(r->flags, ROOM_NEUTRAL)) return true;
 	return false;
 };
 
 bool isRunning(game_room *r) {
 	cout << checkB(r->flags, ROOM_RUNNING) << endl;
-	if (checkB(r->flags, ROOM_RUNNING) > 0) return true;
+	if (checkB(r->flags, ROOM_RUNNING)) return true;
 	return false;
 };
 
+
+
 // constant for rooms array
-const int GAME_ROOM_SIZE = EXIT+1;
+const int GAME_ROOM_SIZE = END+1;
 
 // globals
 game_player *player;
@@ -401,18 +434,8 @@ int main()
 				choice = atoi(command[0].c_str());
 				switch(choice) {
 					case MENU_HISCORES:
-						/*
-						ifstream inFile("Hiscore.txt");
-						if (!inFile) {
-							cout << "There are no High Scores yet. Please play the game to add a High Score";
-						} else {
-							for (int i= 0; i < 5; i++) {
-							inFile >> hiScore[i];
-							cout >> hiScore[i];
-							inFile.close();
-						}
-						*/
-							break;
+						readHiScores();
+					break;
 					case MENU_PLAY:
 						cout << "Game initializing..." << endl;
 						gameState = STATE_INIT;
@@ -472,7 +495,13 @@ int main()
 						break;
 						case COMMAND_USE:
 							doUse(command);
-						break;
+							break;
+						case COMMAND_WIELD:
+							doWield(command);
+							break;
+						case COMMAND_WEAR:
+							doWear(command);
+							break;
 						case COMMAND_JUMP:
 							doJump(command);
 						break;
@@ -497,6 +526,7 @@ int main()
 			break;
 			// player died
 			case STATE_GAMEOVER:
+				newHiScores();
 				// cleanup
 				delete[] rooms;
 				delete player;
@@ -616,6 +646,12 @@ int determineAction(vector<string> &in) {
 		cid = COMMAND_DODGE;
 	} else if (isMatch("inventory", cmd)) {
 		cid = COMMAND_INVENTORY;
+	} else if (isMatch("use", cmd)) {
+		cid = COMMAND_USE;
+	} else if (isMatch("wield", cmd)) {
+		cid = COMMAND_WIELD;
+	} else if (isMatch("wear", cmd)) {
+		cid = COMMAND_WEAR;
 	} else if (isMatch("jump", cmd)) {
 		cid = COMMAND_JUMP;
 	} else if (isMatch("look", cmd)) {
@@ -714,7 +750,7 @@ void doJump(vector<string> &in) {
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
-	if(checkB(r->flags, ROOM_JUMPEXIT) > 0 && in.size() == 0) {
+	if(checkB(r->flags, ROOM_JUMPEXIT) && in.size() == 0) {
 		cout << "Giving yourself enough room for a running start, you take a flying leap into the unknown!" << endl;
 		cout << r->transition;
 		p->rloc = r->prop1;
@@ -862,7 +898,7 @@ void doLook(vector<string> &in) {
 			if(ri->size() > 0) {
 				cout << "You also see: " << endl;
 				for(game_item gi : *ri) {
-					cout << "a " << getDescriber(&gi) << endl;
+					if(!checkB(gi.flags, BIT_IMMOBILE)) cout << "a " << getDescriber(&gi) << endl;
 				}
 				/*for(int i=0; i < (int)ri->size(); i++) {
 					game_item *gi = &ri->at(i);
@@ -892,6 +928,20 @@ void doInventory(vector<string> &in) {
 }
 
 void doUse(vector<string> &in) {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
+}
+
+void doWield(vector<string> &in) {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
+}
+
+void doWear(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
@@ -1047,6 +1097,54 @@ int d20(int bias) {
 	return roll;
 }
 
+
+// John's work Function to display High Scores
+void readHiScores() {
+	ifstream inFile;
+	inFile.open(FILE_HISCORES);
+	if (inFile) {
+		cout << "The High Scores are:" << endl;
+		for (int counter = 0; counter < 5; counter++) {
+			inFile >> hiScore[counter];
+			cout << hiScore[counter] << endl;
+		}
+	} else
+		cout << "There are no High Scores yet. Please play the game to add a High Score." << endl;
+	inFile.close();
+}
+
+
+//Function to write new high scores to disk.
+void newHiScores() {
+	ofstream outFile;
+	outFile.open(FILE_HISCORES);
+	if (player->gold > hiScore[0]) {
+		hiScore[4] = hiScore[3];
+		hiScore[3] = hiScore[2];
+		hiScore[2] = hiScore[1];
+		hiScore[1] = hiScore[0];
+		hiScore[0] = player->gold;
+	} else if (player->gold > hiScore[1]) {
+		hiScore[4] = hiScore[3];
+		hiScore[3] = hiScore[2];
+		hiScore[2] = hiScore[1];
+		hiScore[1] = player->gold;
+	} else if (player->gold > hiScore[2]) {
+		hiScore[4] = hiScore[3];
+		hiScore[3] = hiScore[2];
+		hiScore[2] = player->gold;
+	} else if (player->gold > hiScore[3]) {
+		hiScore[4] = hiScore[3];
+		hiScore[3] = player->gold;
+	} else if (player->gold > hiScore[4])
+		hiScore[4] = player->gold;
+
+	for (int counter = 0; counter < 5; counter++) {
+		outFile << hiScore[counter] << endl;
+	}
+	outFile.close();
+}
+
 // createMonster - spawns a critter and assigns it stats
 game_monster createMonster(int id) {
 	game_monster m;
@@ -1153,8 +1251,7 @@ game_item createItem(int id) {
 			newItem.adjectives = "large red steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			setB(newItem.flags, BIT_EXIT);
-			setB(newItem.flags, BIT_IMMOBILE);
+			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = RED_1;
 			break;
 		case ITEM_GREEN_DOOR:
@@ -1162,8 +1259,7 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.adjectives = "large green steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			setB(newItem.flags, BIT_EXIT);
-			setB(newItem.flags, BIT_IMMOBILE);
+			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = GREEN_1;
 			break;
 		case ITEM_BLUE_DOOR:
@@ -1171,8 +1267,7 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.adjectives = "large blue steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			setB(newItem.flags, BIT_EXIT);
-			setB(newItem.flags, BIT_IMMOBILE);
+			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = BLUE_1;
 			break;
 		case ITEM_YELLOW_DOOR:
@@ -1180,8 +1275,7 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.adjectives = "large yellow steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			setB(newItem.flags, BIT_EXIT);
-			setB(newItem.flags, BIT_IMMOBILE);
+			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = YELLOW_1;
 			break;
 		case ITEM_GOLD_DOOR:
@@ -1189,8 +1283,24 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.adjectives = "large gold steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
-			setB(newItem.flags, BIT_EXIT);
-			setB(newItem.flags, BIT_IMMOBILE);
+			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE | BIT_LOCKED);
+			newItem.prop1 = BOSS_ENTRY;
+			break;
+		case ITEM_SECRET_ENT:
+			newItem.name = "door";
+			newItem.adjectives = "large steel";
+			newItem.description = "This massive steel slab is almost more wall than door; even if you had a means of \
+opening it, it would require great strength to do so. An ornate indentation of a skull sits in the middle of the steel.";
+			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE | BIT_LOCKED);
+			newItem.prop1 = SECRET_CHAMBER;
+			newItem.prop2 = ITEM_GOLD_KEY;
+			break;
+		case ITEM_SECRET_EXIT:
+			newItem.name = "door";
+			newItem.adjectives = "large steel";
+			newItem.description = "Huh - guess it was a door after all. No wonder - they kept the treasure room stocked! \
+You almost wish you were a pirate, just so you could brag about all the booty you plundered";
+			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = BOSS_ENTRY;
 			break;
 		case ITEM_BURROW_ENT:
@@ -1198,8 +1308,7 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			newItem.adjectives = "small rounded";
 			newItem.description = "A small burrow is dug into the wall here, though by the markings, you aren't sure \
 what dug it. If you were to squeeze, you could probably make your way through it.";
-			setB(newItem.flags, BIT_EXIT);
-			setB(newItem.flags, BIT_IMMOBILE);
+			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = CORRIDOR;
 			break;
 		case ITEM_BURROW_EXIT:
@@ -1207,9 +1316,50 @@ what dug it. If you were to squeeze, you could probably make your way through it
 			newItem.adjectives = "small rounded";
 			newItem.description = "It's the hole you came in from. You think you could probably squeeze \
 back through, but you'd probably get all dirty again.";
-			setB(newItem.flags, BIT_EXIT);
-			setB(newItem.flags, BIT_IMMOBILE);
+			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = ENTRY;
+			break;
+		case ITEM_RED_KEY:
+			newItem.name = "key";
+			newItem.adjectives = "large red";
+			newItem.description = "Is this really supposed to be a key? It doesn't look like it'd fit in \
+any tumbler you've ever seen. The size is understandable, but it doesn't seem to have any teeth to it. ";
+			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
+			newItem.prop1 = 4;
+			break;
+		case ITEM_BLUE_KEY:
+			newItem.name = "key";
+			newItem.adjectives = "large blue";
+			newItem.description = "You might as well call this thing a mace, because it sure doesn't look \
+like a key. Maybe there's some special purpose to it, but you don't seem to be able to find it.";
+			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
+			newItem.prop1 = 4;
+			break;
+		case ITEM_YELLOW_KEY:
+			newItem.name = "key";
+			newItem.adjectives = "large yellow";
+			newItem.description = "Large and unembellished was the apparent motto of whoever designed this \
+thing. If it were just a tad longer, you think it could make a good prybar.";
+			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
+			newItem.prop1 = 4;
+			break;
+		case ITEM_GREEN_KEY:
+			newItem.name = "key";
+			newItem.adjectives = "large green";
+			newItem.description = "This thing really looks like it was designed for trolls - a long, crude \
+blunt instrument with a pointy end. It could be some some radical new door-opening technology the world has \
+never seen before, or maybe it's just an object to cause blunt-force trauma? Hard to say.";
+			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
+			newItem.prop1 = 4;
+			break;
+		case ITEM_GOLD_KEY:
+			newItem.name = "key";
+			newItem.adjectives = "solid gold";
+			newItem.description = "Wow. Guess those were keys after all. Maybe you underestimated those trolls? \
+Despite this thing being made of SOLID GOLD, it's surprisingly light. You could probably even show off with this \
+thing, if you ever make it back to the village";
+			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
+			newItem.prop1 = 10;
 			break;
 		case ITEM_DAGGER:
 			newItem.name = "dagger";
@@ -1262,55 +1412,6 @@ in some serious pain";
 	newItem.type = id;
 	return newItem;
 };
-
-/*
-// John's work Function to display High Scores
-void hiScores() {
-	ifstream inFile;
-	inFile.open("High Scores.txt");
-	if (inFile) {
-		cout << "The High Scores are:" << endl;
-		for (int counter = 0; counter < 5; counter++) {
-			inFile >> hiScore[counter];
-			cout << hiScore[counter] << endl;
-		}
-	} else
-		cout << "There are no High Scores yet. Please play the game to add a High Score." << endl;
-	inFile.close();
-}
-
-
-//Function to write new high scores to disk.
-void newHiScores() {
-	ofstream outFile;
-	outFile.open("High Scores.txt");
-	if (player->gold > hiScore[0]) {
-		hiScore[4] = hiScore[3];
-		hiScore[3] = hiScore[2];
-		hiScore[2] = hiScore[1];
-		hiScore[1] = hiScore[0];
-		hiScore[0] = player->gold;
-	} else if (player->gold > hiScore[1]) {
-		hiScore[4] = hiScore[3];
-		hiScore[3] = hiScore[2];
-		hiScore[2] = hiScore[1];
-		hiScore[1] = player->gold;
-	} else if (player->gold > hiScore[2]) {
-		hiScore[4] = hiScore[3];
-		hiScore[3] = hiScore[2];
-		hiScore[2] = player->gold;
-	} else if (player->gold > hiScore[3]) {
-		hiScore[4] = hiScore[3];
-		hiScore[3] = player->gold;
-	} else if (player->gold > hiScore[4])
-		hiScore[4] = player->gold;
-
-	for (int counter = 0; counter < 5; counter++) {
-		outFile << hiScore[counter];
-	}
-	outFile.close();
-}*/
-
 
 void initRooms() {
 	rooms = new game_room[GAME_ROOM_SIZE];
@@ -1366,6 +1467,7 @@ through";
 	r->transition = "You crawl down into the hole and begin shimmying through. Loose dirt flies up in \
 your hair and on your face and clothes(not that you weren't already filthy). With significant labor, \
 you squeeze through";
+	r->items.push_back(createItem(ITEM_SECRET_ENT));
 	r->items.push_back(createItem(ITEM_BURROW_ENT));
 
 	r = &rooms[CORRIDOR];
@@ -1528,6 +1630,12 @@ lit by a few torches on the wall.";
 
 	r = &rooms[EXIT];
 	r->name = "Dungeon Exit";
+	r->description = "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in\
+	\n the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of ";
+	setB(r->flags, ROOM_NEUTRAL);
+
+	r = &rooms[SECRET_CHAMBER];
+	r->name = "Hidden Chamber";
 	r->description = "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in\
 	\n the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of ";
 	setB(r->flags, ROOM_NEUTRAL);
