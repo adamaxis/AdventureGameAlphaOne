@@ -40,9 +40,10 @@ enum item_states {
 	BIT_BLOCKED_VISIBLE = 4,
 	BIT_LOCKED = 8,
 	BIT_KEY = 16,
-	BIT_POTION = 32,
-	BIT_WEAPON = 64,
-	BIT_ARMOR = 128,
+	BIT_CONTAINER = 32,
+	BIT_POTION = 64,
+	BIT_WEAPON = 128,
+	BIT_ARMOR = 256,
 };
 
 enum room_states {
@@ -51,6 +52,7 @@ enum room_states {
 	ROOM_NEUTRAL = 4,
 	ROOM_NOEXIT = 8,
 	ROOM_JUMPEXIT = 16,
+	ROOM_WIN = 32
 };
 
 // states for game status
@@ -165,13 +167,13 @@ enum game_traps {
 enum game_items {
 	ITEM_FISTS = -10,
 	ITEM_CLAWS,
-	ITEM_NO_ARMOR,
+	ITEM_CLOTHES,
+	ITEM_RAGS,
 	ITEM_NONE = 0,
 	ITEM_RED_KEY,
 	ITEM_BLUE_KEY,
 	ITEM_YELLOW_KEY,
 	ITEM_GREEN_KEY,
-	ITEM_GOLD_KEY,
 	ITEM_RED_DOOR,
 	ITEM_BLUE_DOOR,
 	ITEM_YELLOW_DOOR,
@@ -181,17 +183,30 @@ enum game_items {
 	ITEM_BURROW_EXIT,
 	ITEM_SECRET_ENT,
 	ITEM_SECRET_EXIT,
-	ITEM_WEAPON=100,
+	ITEM_WEAPON=100,			// weapon drops begin
 	ITEM_DAGGER,
 	ITEM_SCIMITAR,
 	ITEM_RAPIER,
 	ITEM_LONGSWORD,
 	ITEM_BROADSWORD,
 	ITEM_2H_SWORD,
-	ITEM_WEAPON_END,
-	ITEM_ARMOR=200,
+	ITEM_WEAPON_END,			// weapon drops end
+	ITEM_ARMOR=200,				// armor drops begin
+	ITEM_CLOTH_ROBE,
 	ITEM_ROTTING_LEATHER,
-	ITEM_ARMOR_END
+	ITEM_STUDDED_LEATHER,
+	ITEM_CHAIN_SHIRT,
+	ITEM_RUSTY_PLATE,
+	ITEM_ARMOR_END,				// armor drops end
+	ITEM_ITEM = 300,			// item drops begin
+	ITEM_SMALL_POTION,
+	ITEM_LARGE_POTION,
+	ITEM_ELIXIR,
+	ITEM_ITEM_END,				// item drops end
+	ITEM_BOTTLE,
+	ITEM_SHINY_PLATE,
+	ITEM_GOLD_KEY,
+	ITEM_RANDOM_TREASURE_BOX
 };
 
 
@@ -201,25 +216,26 @@ struct game_item {
 	string description;
 	int type = ITEM_NONE;
 	long flags = 0;
-	int prop1 = 0;
-	int prop2 = 0;
+	long prop1 = 0;
+	long prop2 = 0;
+	string sprop1, sprop2;
+	void *vprop1;
 	int id;
 
-	// isExit - prop1 contains exit ID
+	// isExit - prop1 contains exit ID, sporp1 contains exit text
 	// isLocked - prop2 contains key ID
-	// isArmor - prop1 contains armor +
-	// isWeapon - prop1 contains weapon +
+	// isArmor - prop1 contains armor def
+	// isWeapon - prop1 contains weapon dmg
+	// isContainer - vprop1 contains object list
 
 	game_item() {
 		id = rand();
 	}
 
 	void clear() {
-		name = adjectives = description = "";
+		name = adjectives = description = sprop1 = sprop2 = "";
 		type = ITEM_NONE;
-		flags = 0;
-		prop1 = 0;
-		prop2 = 0;
+		flags = prop1 = prop2 = 0;
 	}
 
 	void copy(game_item c) {
@@ -230,6 +246,8 @@ struct game_item {
 		flags = c.flags;
 		prop1 = c.prop1;
 		prop2 = c.prop2;
+		sprop1 = c.sprop1;
+		sprop2 = c.sprop2;
 		id = c.id;
 	}
 
@@ -261,100 +279,83 @@ void doLookBrief(vector<string> &);
 void doUse(vector<string> &);
 void doInventory(vector<string> &);
 void doTake(vector<string> &);
-void doUse(vector<string> &);
 void doWield(vector<string> &);
 void doWear(vector<string> &);
 
+void doGameCheck(vector<string> &);
 
-template<class T>
-string getWeapon(T *entity) {
-	return entity->weapon.name;
-};
-
-template<class T>
-int getDamage(T *entity) {
-	return entity->weapon.prop1;
-};
-
-template<class T>
-int getDefense(T *entity) {
-	return entity->armor.prop1;
-};
-
-template<class T>
-string getDescriber(T *entity) {
-	return (entity->adjectives + " " + entity->name);
-};
-
-template<class T>
-string getName(T & entity) {
-	return (entity->name);
-};
-
-
-template<class T>
-string getDescription(T & entity) {
-	return (entity->description);
-};
-
-template<class T>
-bool areEqual(T *entity, T *entity2) {
-	return(entity->id == entity2->id);
-};
-
-template<class T>
-bool isLiving(T & entity) {
-	return (entity->HP > 0);
-};
 
 template<class T>
 bool isActive(T *t) {
 	return t->isArmed;
 };
 
+
+// weapon functions
 template<class T>
-bool isExit(T *i) {
-	if (checkB(i->flags, BIT_EXIT)) return true;
-	return false;
-};
+string getWeapon(T *entity) { return entity->weapon.name; };
 
 template<class T>
-bool hasExit(T *i) {
-	if (checkB(i->flags, ROOM_NOEXIT)) return false;
-	return true;
-};
+int getDamage(T *entity) { return entity->weapon.prop1; };
+
+
+// armor functions
+template<class T>
+string getArmor(T *entity) { return entity->armor.name; };
 
 template<class T>
-bool isWeapon(T *i) {
-	if (checkB(i->flags, BIT_WEAPON)) return true;
-	return false;
-};
+int getDefense(T *entity) { return entity->armor.prop1; };
+
+// potion functions
+template<class T>
+int getHealAmt(T *entity) { return entity->prop1; };
+
+
+
+// generic object functions
+template<class T>
+bool areEqual(T *entity, T *entity2) { return (entity->id == entity2->id); };
 
 template<class T>
-bool isArmor(T *i) {
-	if (checkB(i->flags, BIT_ARMOR)) return true;
-	return false;
-};
+bool isLiving(T & entity) { return (entity->HP > 0); };
 
 template<class T>
-bool isPotion(T *i) {
-	if (checkB(i->flags, BIT_POTION)) return true;
-	return false;
-};
+string getDescriber(T *entity) { return (entity->adjectives + " " + entity->name); };
 
 template<class T>
-bool isNeutral(T *r) {
-	cout << checkB(r->flags, ROOM_NEUTRAL) << endl;
-	if (checkB(r->flags, ROOM_NEUTRAL)) return true;
-	return false;
-};
+string getName(T & entity) { return (entity->name); };
 
 template<class T>
-bool isRunning(T *r) {
-	cout << checkB(r->flags, ROOM_RUNNING) << endl;
-	if (checkB(r->flags, ROOM_RUNNING)) return true;
-	return false;
-};
+string getDescription(T & entity) { return (entity->description); };
+
+
+
+
+// item bit checkers
+template<class T>
+bool isWeapon(T *i) { return checkB(i->flags, BIT_WEAPON); };
+
+template<class T>
+bool isArmor(T *i) { return checkB(i->flags, BIT_ARMOR); };
+
+template<class T>
+bool isPotion(T *i) { return checkB(i->flags, BIT_POTION); };
+
+template<class T>
+bool isContainer(T *i) { return checkB(i->flags, BIT_CONTAINER); };
+
+template<class T>
+bool isExit(T *i) { return checkB(i->flags, BIT_EXIT); };
+
+// room bit checkers
+template<class T>
+bool hasExit(T *i) { return !checkB(i->flags, ROOM_NOEXIT); };
+
+template<class T>
+bool isNeutral(T *r) { return checkB(r->flags, ROOM_NEUTRAL); };
+
+template<class T>
+bool isRunning(T *r) { return checkB(r->flags, ROOM_RUNNING); };
 
 
 // player struct - self explanatory
@@ -369,11 +370,10 @@ public:
 	game_item weapon, armor;
 
 	game_player() {
-		bonus = 5;
 		gold = 0;
 		rloc = FOREST;
 		weapon = createItem(ITEM_FISTS);
-		armor = createItem(ITEM_NO_ARMOR);
+		armor = createItem(ITEM_CLOTHES);
 		HP = 3;
 	}
 
@@ -391,8 +391,8 @@ struct game_monster {
 		difficulty = MONSTER_NONE;
 		description = "none";
 		HP = 0;
-		weapon = createItem(ITEM_FISTS);
-		armor = createItem(ITEM_NO_ARMOR);
+		weapon = createItem(ITEM_CLAWS);
+		armor = createItem(ITEM_RAGS);
 	}
 };
 
@@ -442,6 +442,8 @@ struct game_command {
 	}
 };
 
+game_command searchByType(long = 0);
+game_command searchByString(vector<string> &);
 
 
 // constant for rooms array
@@ -451,6 +453,7 @@ const int GAME_ROOM_SIZE = END+1;
 game_player *player;
 game_room *rooms;
 game_command target;
+vector<void *> containers;
 
 int gameState;
 
@@ -508,12 +511,6 @@ int main()
 			break;
 			// game is running
 			case STATE_PLAYING:
-				if (!isLiving(player)) {
-					// death is handled here
-					cout << "You have died!" << endl;
-					gameState = STATE_GAMEOVER;
-					continue;
-				}
 				// clear target
 				command = getInput();
 				action = determineAction(command);
@@ -568,17 +565,42 @@ int main()
 							cout << "Unknown command" << endl;
 						break;
 					}
+					doGameCheck(command);
 				}
 			break;
 			// player died
 			case STATE_GAMEOVER:
 				newHiScores();
 				// cleanup
+				// delete container-list for boxes
+				int ci = containers.size();
+				for(int i=0; i < ci; i++) {
+					// c-style object reference
+					vector<game_item> *li = reinterpret_cast<vector<game_item> *> (containers.at(0));
+					delete li;
+					// erase it from container list as well
+					containers.erase(containers.begin());
+				}
+				// delete rooms and players
 				delete[] rooms;
 				delete player;
 				gameState = STATE_MENU;
 			break;
 		}
+	}
+}
+
+void doGameCheck(vector<string> &in) {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	if (!isLiving(p)) {
+		// death is handled here
+		cout << "You have died!" << endl;
+		gameState = STATE_GAMEOVER;
+	} else if(checkB(r->flags, ROOM_WIN)) {
+		// player reached the final room
+		cout << "You have won!" << endl;
+		gameState = STATE_GAMEOVER;
 	}
 }
 
@@ -594,18 +616,75 @@ bool adjCheck(vector<string> in, T *obj) {
 	return true;
 };
 
-bool nameMatch(string input) {
-	return false;
+void resolveTarget(vector<string> &in) {
+	target = searchByString(in);
 };
 
-void resolveTarget(vector<string> &in) {
-	// 		if(in.size() > 0 && (in[0].compare("at") == 0 || in[0].size() != 0)) cid = COMMAND_LOOK_AT;
+game_command searchByType(long type) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	vector<game_item> *ir = &r->items;
 	vector<game_item> *ip = &p->items;
-	target.clear();
+	game_command target;
+	// check to ensure there is a command to be parsed
+
+	if (type != TYPE_NONE) {
+		// search player items
+		for (int i = 0; i < (int)ip->size(); i++) {
+			if (ip->at(i).type == type) {
+				// c-style - could not find an alternative
+				target.ptype = TYPE_PLAYER;
+				target.parent = reinterpret_cast<void *>(&p);
+				target.type = TYPE_ITEM;
+				target.target = reinterpret_cast<void *>(&ip->at(i));
+				break;
+			}
+		}
+
+		// search room items
+		for (int i = 0; i < (int)ir->size(); i++) {
+			if (ir->at(i).type == type) {
+				// c-style - could not find an alternative
+				target.ptype = TYPE_ROOM;
+				target.parent = reinterpret_cast<void *>(&r);
+				target.type = TYPE_ITEM;
+				target.target = reinterpret_cast<void *>(&ir->at(i));
+				break;
+			}
+		}
+
+
+	// check user weapon
+		if (p->weapon.type == type) {
+			// c-style - could not find an alternative
+			target.ptype = TYPE_PLAYER;
+			target.parent = reinterpret_cast<void *>(&p);
+			target.type = TYPE_ITEM;
+			target.target = reinterpret_cast<void *>(&p->weapon);
+		}
+
+		// check user armor
+		if (p->armor.type == type) {
+			// c-style - could not find an alternative
+			target.ptype = TYPE_PLAYER;
+			target.parent = reinterpret_cast<void *>(&p);
+			target.type = TYPE_ITEM;
+			target.target = reinterpret_cast<void *>(&p->armor);
+		}
+
+		if (target.type == TYPE_NONE) target.type = target.ptype = TYPE_UNKNOWN;
+	};
+	return target;
+};
+
+game_command searchByString(vector<string> &in) {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	game_monster *m = &r->monster;
+	vector<game_item> *ir = &r->items;
+	vector<game_item> *ip = &p->items;
+	game_command target;
 	// check to ensure there is a command to be parsed
 
 	if (in.size() > 0) {
@@ -617,7 +696,7 @@ void resolveTarget(vector<string> &in) {
 		for (int i = 0; i < (int)ip->size(); i++) {
 			if (isMatch(ip->at(i).name, targ)) {
 				// adjective check
-				if(adjCheck(in, &ip->at(i))) {
+				if (adjCheck(in, &ip->at(i))) {
 					// c-style - could not find an alternative
 					target.ptype = TYPE_PLAYER;
 					target.parent = reinterpret_cast<void *>(&p);
@@ -662,7 +741,7 @@ void resolveTarget(vector<string> &in) {
 				target.target = reinterpret_cast<void *>(&p->armor);
 			}
 		}
-		
+
 		// check monster
 		if (isMatch(m->name, targ)) {
 			if (adjCheck(in, m)) {
@@ -674,10 +753,10 @@ void resolveTarget(vector<string> &in) {
 			}
 		}
 		in.push_back(targ);
-		if(target.type == TYPE_NONE) target.type = target.ptype = TYPE_UNKNOWN;
-		//if (isMatch(, target)) cout << "Affirmitive match: " << m->name << endl;
+		if (target.type == TYPE_NONE) target.type = target.ptype = TYPE_UNKNOWN;
 		// search player if (isMatch(p->name, target)) cout << "Affirmitive match: " << m->name << endl;
 	};
+	return target;
 };
 
 int determineAction(vector<string> &in) {
@@ -832,7 +911,7 @@ void doJump(vector<string> &in) {
 	}
 }
 
-// doGo()  - written by John
+// doGo()  - written by John with some additions by Daniel
 // GO <exit> - goes through an exit (if it's available).
 void doGo(vector<string> &in) {
 	game_room *r = &rooms[player->rloc];
@@ -847,9 +926,28 @@ void doGo(vector<string> &in) {
 				} else if (isActive(t)) {
 					cout << "But the " << getName(t) << " is armed!" << endl;
 				} else {
-					cout << "You pass through the " << getName(ni) << endl;
-					p->rloc = ni->prop1;
-					doLookBrief(in);
+					if(checkB(ni->flags, BIT_LOCKED)) {
+						// search inventory for key
+						game_command key = searchByType(ni->prop2);
+						if(key.type == TYPE_ITEM) {
+							if(key.ptype == TYPE_ROOM) {
+								cout << "The " << getName(ni) << " seems to be locked" << endl;
+							} else if (key.ptype == TYPE_MONSTER) {
+								cout << "error: searchByType() has targetted a monster, somehow." << endl;
+							} else if (key.ptype == TYPE_PLAYER) {
+								game_item *ki = reinterpret_cast<game_item *> (key.target);
+								cout << "You unlock the " << getName(ni) << " with your " << getName(ki) << "." << endl;
+								clearB(ni->flags, BIT_LOCKED);
+							}
+						}
+					}
+					if(checkB(ni->flags, BIT_LOCKED)) {
+						cout << "The " << getName(ni) << " seems to be locked" << endl;
+					} else {
+						cout << "You pass through the " << getName(ni) << endl;
+							p->rloc = ni->prop1;
+							doLookBrief(in);
+					}
 				}
 		} else {
 			cout << "You can't go there!" << endl;
@@ -873,9 +971,9 @@ void doContinue(vector<string> &in) {
 	} else if(!hasExit(r)) {
 		cout << "There is no obvious path forward." << endl;
 	} else if(isLiving(m)) {
-		cout << "You can't leave until you've vanquished the " + r->monster.name + "!";
+		cout << "You can't leave until you've vanquished the " + r->monster.name + "!" << endl;
 	} else if(t->isArmed) {
-		cout << "The room is trapped! Are you trying to die?";
+		cout << "The room is trapped! Are you trying to die?" << endl;
 	} else {
 		r->beenVisited = true;
 		cout << r->transition << endl;
@@ -981,12 +1079,12 @@ void doInventory(vector<string> &in) {
 	vector<game_item> *pi = &p->items;
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
-	cout << "You are carrying ";
+	cout << "You are carrying:" << endl;
 	for (game_item gi : *pi) {
 		cout << "a " << getDescriber(&gi) << "," << endl;
 	}
 	if(pi->size() == 0) cout << "nothing." << endl;
-	else  cout << "." << endl;
+	else cout << endl;
 }
 
 void doUse(vector<string> &in) {
@@ -994,6 +1092,73 @@ void doUse(vector<string> &in) {
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
+	vector<game_item> *ir = &r->items;
+	vector<game_item> *ip = &p->items;
+	if (target.type != TYPE_NONE) {
+		if (target.type == TYPE_ITEM) {
+			game_item *ni = reinterpret_cast<game_item *> (target.target);
+			// item can be taken
+			if (target.ptype == TYPE_ROOM) {	// the object is on the ground
+				if(isExit(ni)) {
+					// pretend it's movement
+					doGo(in);
+					return;
+				} else if (isContainer(ni)) {	// treasure box
+					vector<game_item> *li = reinterpret_cast<vector<game_item> *> (containers[containers.size() - 1]);
+					if(li->size() != 0) {
+						cout << "You open the " << getDescriber(ni) << " and loot its contents." << endl;
+						cout << "You take:" << endl;
+						int lSize = li->size();
+						for(int i=0; i < lSize; i++) {
+							cout << "a " << getDescriber(&li->at(0)) << endl;
+							ip->push_back(li->at(0));
+							li->erase(li->begin());
+						}
+					} else {
+						cout << "But the " << getDescriber(ni) << " is empty!" << endl;
+					}
+				} else {						// object is not an exit so ??
+					cout << "You reach out and touch the " << getName(ni) << "." << endl;
+				}
+			} else if (target.ptype == TYPE_PLAYER) {
+				if (areEqual(&p->weapon, ni)) {						// weapon and target are the same
+					cout << "You wave your " << getName(ni) << " around like a madman." << endl;
+				} else if(areEqual(&p->armor, ni)) {				// armor and target are the same
+					cout << "You puff out your chest and strut around, showing off your " << getName(ni) << "." << endl;
+				} else {
+					for (int i = 0; i < (int)ip->size(); i++) {		// search player iventory
+						if (areEqual(&ip->at(i), ni)) {				// found target item-list
+							if(isPotion(ni)) {
+								cout << "You guzzle down the " << getName(ni) << " and smack your lips! Refreshing!" << endl;
+								// time for some flavor text
+								if (getHealAmt(ni) == 1) cout << "You feel a bit better." << endl;
+								else if (getHealAmt(ni) == 2) cout << "You feel a *LOT* better." << endl;
+								else if (getHealAmt(ni) == 3) cout << "You feel like a million bucks, holy cow! Bring on the trolls!" << endl;
+								// heal player
+								p->HP += getHealAmt(ni);
+								// cap extra HP at 5
+								if(p->HP > 5) p->HP = 5;
+								// create bottle
+								cout << "You stow the empty bottle away." << endl;
+								ip->push_back(createItem(ITEM_BOTTLE));
+								// erase old potion
+								ip->erase(ip->begin() + i);
+								// re-align ni since vector erasure breaks it
+								ni = &ip->at(i);
+							}
+						}
+					}
+				}
+			} else {
+				cout << "doUse() error: How did we arrive here?" << endl;
+			}
+		} else if (target.type == TYPE_MONSTER) {
+			game_monster *nm = reinterpret_cast<game_monster *> (target.target);
+			cout << "Now, now - there's no need to be rude to the " << getName(nm) << "." << endl;
+		} else {
+			cout << "USE what?" << endl;
+		}
+	}
 }
 
 void doWield(vector<string> &in) {
@@ -1019,7 +1184,7 @@ void doWield(vector<string> &in) {
 							for (int i = 0; i < (int)ip->size(); i++) {
 								if (areEqual(&ip->at(i), ni)) {				// found target item-list
 									game_item *wi = &p->weapon;
-									if (wi->type == ITEM_FISTS) {
+									if (wi->type < 0) {
 										cout << "Your knuckles were getting sore, anyways." << endl;
 									} else {
 										// add to inventory
@@ -1048,8 +1213,8 @@ void doWield(vector<string> &in) {
 				cout << "You'd have no idea how to do that." << endl;
 			}
 		} else if (target.type == TYPE_MONSTER) {
-			//game_monster *nm = reinterpret_cast<game_monster *> (target.target);
-			cout << "I'm sure the " << getName(m) << " is flattered, but not today." << endl;
+			game_monster *nm = reinterpret_cast<game_monster *> (target.target);
+			cout << "I'm sure the " << getName(nm) << " is flattered, but not today." << endl;
 		} else {
 			cout << "WIELD what?" << endl;
 		}
@@ -1079,14 +1244,14 @@ void doWear(vector<string> &in) {
 							for (int i = 0; i < (int)ip->size(); i++) {
 								if (areEqual(&ip->at(i), ni)) {				// found target item-list
 									game_item *ai = &p->armor;
-									if(ai->type == ITEM_NO_ARMOR) {
+									if(ai->type < 0) {
 										cout << "Feels good to put something protective on!" << endl;
 									} else {
 										// add to inventory
 										cout << "You remove your " << getName(ai) << "." << endl;
 										ip->push_back(*ai);
-										// fix for push_back() messing up ai's pointer
-										ai = &ip->at(i);
+										// fix for push_back() messing up ni's pointer
+										ni = &ip->at(i);
 										ai->clear();
 									}
 									cout << "You put on the " << ni->name << endl;
@@ -1225,7 +1390,7 @@ void monsterDeath(game_monster *m) {
 	};
 
 	// check to see if he had a weapon
-	if (m->weapon.type != ITEM_FISTS && m->weapon.type != ITEM_CLAWS) {
+	if (m->weapon.type > 0) {
 		cout << "His " << getWeapon(m) << " fall to the ground!" << endl;
 		// drop weapon
 		ir->push_back(m->weapon);
@@ -1309,7 +1474,8 @@ game_monster createMonster(int id) {
 	m.difficulty = newMob;
 	if(m.difficulty < 0) m.HP = 1;
 	else if(m.difficulty < 4) m.HP = 2;
-	else if(m.difficulty < 10) m.HP = 3;
+	else if (m.difficulty < 10) m.HP = 3;
+	else if (m.difficulty >= 10) m.HP = 5;
 	switch (newMob) {
 		case MONSTER_GREEN_GOBLIN:
 			m.name = "goblin";
@@ -1353,6 +1519,10 @@ game_monster createMonster(int id) {
 			break;
 		case MONSTER_OGRE:
 			m.name = "ogre";
+			m.adjectives = "disgusting";
+			break;
+		case MONSTER_TROLL_KING:
+			m.name = "troll";
 			m.adjectives = "massive";
 			break;
 		default:
@@ -1370,12 +1540,13 @@ game_monster createMonster(int id) {
 				cout << endl;
 				break;
 			case 1:
-				cout << "Armor isn't set up yet." << endl;
-
+				m.items.push_back(createItem((rand() % (ITEM_ARMOR_END - ITEM_ARMOR - 1)) + ITEM_ARMOR + 1));
 				break;
 			case 2:
-				cout << "Items aren't set up yet." << endl;
+				m.items.push_back(createItem((rand() % (ITEM_ITEM_END - ITEM_ITEM - 1)) + ITEM_ITEM + 1));
 				break;
+			default:
+				cout << "createMonster() error" << endl;
 		}
 	}
 
@@ -1384,14 +1555,30 @@ game_monster createMonster(int id) {
 
 game_item createItem(int id) {
 	game_item newItem;
+	vector<game_item> *treasure;
+	vector<game_item> *li;
 	switch(id) {
+		case ITEM_RANDOM_TREASURE_BOX:
+			newItem.name = "box";
+			newItem.adjectives = "ornate";
+			newItem.description = "A metal box. Maybe there's stuff inside?";
+			newItem.type = id;
+			treasure = new vector<game_item>;
+			// throw in some goodies.
+			treasure->push_back(createItem((rand() % (ITEM_WEAPON_END - ITEM_WEAPON - 1)) + ITEM_WEAPON + 1));
+			treasure->push_back(createItem((rand() % (ITEM_ARMOR_END - ITEM_ARMOR - 1)) + ITEM_ARMOR + 1));
+			treasure->push_back(createItem((rand() % (ITEM_ITEM_END - ITEM_ITEM - 1)) + ITEM_ITEM + 1));
+			containers.push_back(treasure);
+			newItem.prop1 = containers.size()-1;
+			setB(newItem.flags, BIT_CONTAINER | BIT_IMMOBILE);
+			break;
 		case ITEM_FISTS:
 			newItem.name = "fists";
 			newItem.adjectives = "";
 			newItem.description = "Your old chums, law and order. They haven't let you down yet.";
 			newItem.type = id;
 			newItem.prop1 = 0;
-			setB(newItem.flags, BIT_WEAPON);
+			setB(newItem.flags, BIT_WEAPON | BIT_IMMOBILE);
 		break;
 		case ITEM_CLAWS:
 			newItem.name = "claws";
@@ -1399,14 +1586,53 @@ game_item createItem(int id) {
 			newItem.description = "Enhanced fingernails. The pointy-ends face out.";
 			newItem.type = id;
 			newItem.prop1 = 1;
-			setB(newItem.flags, BIT_WEAPON);
+			setB(newItem.flags, BIT_WEAPON | BIT_IMMOBILE);
 			break;
-		case ITEM_NO_ARMOR:
+		case ITEM_CLOTHES:
 			newItem.name = "clothes";
-			newItem.adjectives = "plain";
-			newItem.description = "These are your clothes.";
-			setB(newItem.flags, BIT_ARMOR);
+			newItem.adjectives = "";
+			newItem.description = "Although trendy, in your time of need, you feel these just aren't cutting it. \
+With trolls and all that, you'd think there'd be some armor to pilfer.";
+			setB(newItem.flags, BIT_ARMOR | BIT_IMMOBILE);
 			newItem.prop1 = 0;
+			break;
+		case ITEM_RAGS:
+			newItem.name = "rags";
+			newItem.adjectives = "";
+			newItem.description = "Although worn and moth-eaten, these thick tatters seems to provide a small amount \
+of padding against conventional weaponry.";
+			setB(newItem.flags, BIT_ARMOR | BIT_IMMOBILE);
+			newItem.prop1 = 1;
+			break;
+		case ITEM_BOTTLE:
+			newItem.name = "bottle";
+			newItem.adjectives = "empty";
+			newItem.description = "Although empty, it once held some great juice. You hold the bottle close to your \
+heart and cherish the memory.";
+			break;
+		case ITEM_SMALL_POTION:
+			newItem.name = "bottle";
+			newItem.adjectives = "small red";
+			newItem.description = "A clear bottle filled to the brim with a strange red liquid, sealed with a stopper. \
+Your brain tells you to not drink strange liquids, but your heart is chanting 'chug it!'";
+			setB(newItem.flags, BIT_POTION);
+			newItem.prop1 = 1;
+			break;
+		case ITEM_LARGE_POTION:
+			newItem.name = "bottle";
+			newItem.adjectives = "large red";
+			newItem.description = "A clear bottle filled to the brim with a strange red liquid, sealed with a stopper. \
+This one seems unusually large.";
+			setB(newItem.flags, BIT_POTION);
+			newItem.prop1 = 3;
+			break;
+		case ITEM_ELIXIR:
+			newItem.name = "bottle";
+			newItem.adjectives = "tiny crystal";
+			newItem.description = "A tiny crystal bottle filled with a strange purple liquid. You wonder why \
+anyone would craft such a nice bottle for this - it's barely a swig...";
+			setB(newItem.flags, BIT_POTION);
+			newItem.prop1 = 5;
 			break;
 		case ITEM_RED_DOOR:
 			newItem.name = "door";
@@ -1447,6 +1673,11 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE | BIT_LOCKED);
 			newItem.prop1 = BOSS_ENTRY;
+			newItem.prop2 = ITEM_GOLD_KEY;
+			newItem.sprop1 = "You approach the large golden door with your golden key.As you draw near, your key \
+begins to glow, and one by one, each of the 4 colored locks fall to the ground. As the final lock hits the ground \
+you hear a rumbling and the room starts to shake slightly. A blazing light shoots out from the door, and it slowly \
+swings open.";
 			break;
 		case ITEM_SECRET_ENT:
 			newItem.name = "door";
@@ -1463,7 +1694,7 @@ opening it, it would require great strength to do so. An ornate indentation of a
 			newItem.description = "Huh - guess it was a door after all. No wonder - they kept the treasure room stocked! \
 You almost wish you were a pirate, just so you could brag about all the booty you plundered";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
-			newItem.prop1 = BOSS_ENTRY;
+			newItem.prop1 = ENTRY;
 			break;
 		case ITEM_BURROW_ENT:
 			newItem.name = "burrow";
@@ -1522,6 +1753,7 @@ Despite this thing being made of SOLID GOLD, it's surprisingly light. You could 
 thing, if you ever make it back to the village";
 			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
 			newItem.prop1 = 10;
+
 			break;
 		case ITEM_DAGGER:
 			newItem.name = "dagger";
@@ -1567,13 +1799,55 @@ in some serious pain";
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 9;
 		break;
+		case ITEM_CLOTH_ROBE:
+			newItem.name = "robe";
+			newItem.adjectives = "padded linen";
+			newItem.description = "Though a bit regal-looking, this robe provides basic protection against \
+most weapons. It's not gonna stop an arrow - but you get what you pay for.";
+			setB(newItem.flags, BIT_ARMOR);
+			newItem.prop1 = 1;
+			break;
 		case ITEM_ROTTING_LEATHER:
 			newItem.name = "armor";
 			newItem.adjectives = "rotting leather";
 			newItem.description = "You can't tell if this started out as armor, or if it became armor \
 after receiving a nice coat of mold from mother nature. Hopefully it holds together";
 			setB(newItem.flags, BIT_ARMOR);
-			newItem.prop1 = 1;
+			newItem.prop1 = 2;
+			break;
+		case ITEM_STUDDED_LEATHER:
+			newItem.name = "armor";
+			newItem.adjectives = "studded leather";
+			newItem.description = "This stuff looks pretty decrepit, but the studs are still intact \
+and the armor smells like it's only mildly been used. Beats nothing.";
+			setB(newItem.flags, BIT_ARMOR);
+			newItem.prop1 = 3;
+			break;
+		case ITEM_CHAIN_SHIRT:
+			newItem.name = "shirt";
+			newItem.adjectives = "old chain";
+			newItem.description = "This shirt is pretty light, all things considered - it doesn't restrict \
+your mobility, yet also provides decent protection from most attacks. Not too shabby.";
+			setB(newItem.flags, BIT_ARMOR);
+			newItem.prop1 = 4;
+			break;
+		case ITEM_RUSTY_PLATE:
+			newItem.name = "armor";
+			newItem.adjectives = "rusty plate";
+			newItem.description = "What is garbage like this doing in a place like this? Though surprising \
+durable, time has not been nice to this rust-bucket - you feel like you might contract lockjaw just from \
+looking at it.";
+			setB(newItem.flags, BIT_ARMOR);
+			newItem.prop1 = 5;
+			break;
+		case ITEM_SHINY_PLATE:
+			newItem.name = "armor";
+			newItem.adjectives = "shiny plate";
+			newItem.description = "What is fantastic armor like this doing in a place like this? You feel \
+more powerful just looking at it - what kind of monster was able to take someone down in a suit of this? \
+Wearing a trash-can has never been so amazing.";
+			setB(newItem.flags, BIT_ARMOR);
+			newItem.prop1 = 10;
 			break;
 		default:
 			cout << "createItem(): unknown id (" << id << ")" << endl;
@@ -1637,8 +1911,11 @@ through";
 	r->transition = "You crawl down into the hole and begin shimmying through. Loose dirt flies up in \
 your hair and on your face and clothes(not that you weren't already filthy). With significant labor, \
 you squeeze through";
+	setB(r->flags, ROOM_NOEXIT);
 	r->items.push_back(createItem(ITEM_SECRET_ENT));
 	r->items.push_back(createItem(ITEM_BURROW_ENT));
+	r->items.push_back(createItem(ITEM_GOLD_KEY));
+	r->items.push_back(createItem(ITEM_RANDOM_TREASURE_BOX));
 
 	r = &rooms[CORRIDOR];
 	r->name = "Corridor, Chamber";
@@ -1650,17 +1927,14 @@ the earth itself is being split in two. Without warning the entrance behind you 
 go through one of the doors ahead of you. As you move closer, you can make out more details about the doors. On the left there are\
 two doors, one red and one green. On the right there are two more, one blue and one yellow. In the center there is a massive, ornately\
 decorated door that appears to be made of solid gold.";
-	setB(r->flags, ROOM_NEUTRAL);
-	setB(r->flags, ROOM_NOEXIT);
+	setB(r->flags, ROOM_NEUTRAL | ROOM_NOEXIT);
 	r->items.push_back(createItem(ITEM_BLUE_DOOR));
 	r->items.push_back(createItem(ITEM_GREEN_DOOR));
 	r->items.push_back(createItem(ITEM_RED_DOOR));
 	r->items.push_back(createItem(ITEM_YELLOW_DOOR));
 	r->items.push_back(createItem(ITEM_GOLD_DOOR));
 	r->items.push_back(createItem(ITEM_BURROW_EXIT));
-	r->items.push_back(createItem(ITEM_DAGGER));
-	r->items.push_back(createItem(ITEM_2H_SWORD));
-	r->items.push_back(createItem(ITEM_ROTTING_LEATHER));
+	r->items.push_back(createItem(ITEM_RANDOM_TREASURE_BOX));
 
 	//If this description needs to be less detailed in order to reuse the room later in the program, we can go with something like, You enter
 	//the main room of the cave system. Opposite you are 5 doors, one red, one green, one blue and one yellow. In the center is a massive
@@ -1791,26 +2065,29 @@ lit by a few torches on the wall.";
 
 	r = &rooms[BOSS_ENTRY];
 	r->name = "Large Golden Door";
-	r->description = "You approach the large golden door with the four keys. As you unlock each lock, one by one, they fall to the ground. As the\
-	final lock hits the ground you hear a rumbling and the room starts to shake slightly. The massive doors swing open and there is a blazinf light on the other\
-	side of the doors.";
+	r->description = "";
 
 	r = &rooms[BOSS];
 	r->name = "Large Throne Room";
 	r->description = "As you step through the doors, you find yourself in a brightly lit throne room, with tall vaulted ceilings and many paintings on the \
 	\nthe wall. There is a roaring fire in the fireplace on one wall, and across from you you see a massive golden throne.";
+	r->transition= "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in \
+the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of a place to sleep.";
+	setB(r->flags, ROOM_NEUTRAL);
+	r->monster = createMonster(MONSTER_TROLL_KING);
 
 	r = &rooms[EXIT];
 	r->name = "Dungeon Exit";
-	r->description = "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in\
-	\n the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of ";
-	setB(r->flags, ROOM_NEUTRAL);
+	r->description = "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in \
+the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of a place to sleep.";
+	setB(r->flags, ROOM_NEUTRAL | ROOM_WIN | ROOM_NOEXIT);
 
 	r = &rooms[SECRET_CHAMBER];
 	r->name = "Hidden Chamber";
 	r->description = "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in\
 	\n the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of ";
-	setB(r->flags, ROOM_NEUTRAL);
+	setB(r->flags, ROOM_NEUTRAL | ROOM_NOEXIT);
+	r->items.push_back(createItem(ITEM_SECRET_EXIT));
 	// populated rooms - TODO
 
 	for (int i = 0; i < GAME_ROOM_SIZE; i++) {
