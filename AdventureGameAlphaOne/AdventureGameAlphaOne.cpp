@@ -101,7 +101,7 @@ enum game_object_types {
 	TYPE_UNKNOWN
 };
 
-// states for different types of monsters, organized by difficult(-5 to 5) -10 for not_a_monster and 10 for final boss
+// game_monsters - states for different types of monsters, organized by difficult(-5 to 5) -10 for not_a_monster and 10 for final boss
 enum game_monsters {
 	MONSTER_NONE = -10,
 	MONSTER_GREEN_GOBLIN = -5,
@@ -116,12 +116,12 @@ enum game_monsters {
 	MONSTER_BUGBEAR,
 	MONSTER_OGRE,
 	MONSTER_TROLL_KING=10,
-	MONSTER_RANDOM
+	MONSTER_RANDOM				// special case
 };
 
-// tags for different rooms, each corresponding to a room within the room array
+// game_locations - tags for different rooms, each corresponding to a room within the room array
 enum game_locations {
-	FOREST = 0,
+	FOREST,
 	FOREST_2,
 	FOREST_3,
 	PIT_1,
@@ -156,15 +156,21 @@ enum game_locations {
 	BOSS,
 	EXIT,
 	SECRET_CHAMBER,
-	END
+	END							// marker for room array size
 };
 
-enum game_traps {
+// constant for rooms array
+const int GAME_ROOM_SIZE = END+1;
+
+
+// game_traps - gives each trap a unique ID
+enum game_traps {				// right now there is only one type of trap - didn't get time to flesh them out
 	TRAP_NONE = 0,
 	TRAP_NORMAL
 };
 
-enum game_items {
+// game_items enum - gives each item a unique ID
+enum game_items {				// all negative entries are natural weapons/armor
 	ITEM_FISTS = -10,
 	ITEM_CLAWS,
 	ITEM_CLOTHES,
@@ -199,45 +205,59 @@ enum game_items {
 	ITEM_RUSTY_PLATE,
 	ITEM_ARMOR_END,				// armor drops end
 	ITEM_ITEM = 300,			// item drops begin
+	ITEM_RANDOM_TREASURE_BOX,
 	ITEM_SMALL_POTION,
 	ITEM_LARGE_POTION,
 	ITEM_ELIXIR,
 	ITEM_ITEM_END,				// item drops end
-	ITEM_BOTTLE,
+	ITEM_BOTTLE,				// special case items go here
 	ITEM_SHINY_PLATE,
 	ITEM_GOLD_KEY,
-	ITEM_RANDOM_TREASURE_BOX
+	ITEM_RED_CHEST,
+	ITEM_GREEN_CHEST,
+	ITEM_BLUE_CHEST,
+	ITEM_YELLOW_CHEST
 };
 
 
+// game_item structure - for items in the game
 struct game_item {
 	string name;
 	string adjectives;
 	string description;
 	int type = ITEM_NONE;
-	long flags = 0;
-	long prop1 = 0;
-	long prop2 = 0;
-	string sprop1, sprop2;
-	void *vprop1;
+	long flags;
+	long prop1;
+	long prop2;
+	string sprop1;
 	int id;
 
+	// flags reference
 	// isExit - prop1 contains exit ID, sporp1 contains exit text
-	// isLocked - prop2 contains key ID
+	// isLocked - prop2 contains key item ID
 	// isArmor - prop1 contains armor def
 	// isWeapon - prop1 contains weapon dmg
-	// isContainer - vprop1 contains object list
+	// isContainer - prop1 contains containers[] array index
 
+	// constructor
 	game_item() {
+		// give each item a unique id
 		id = rand();
+
+		// default values
+		clear();
 	}
 
+	// clear() - clears all object data
 	void clear() {
-		name = adjectives = description = sprop1 = sprop2 = "";
+		name = adjectives = description = sprop1 = "";
 		type = ITEM_NONE;
-		flags = prop1 = prop2 = 0;
+		flags = 0;
+		prop1 = 0;
+		prop2 = 0;
 	}
 
+	// copy(item) - copies the provided item data to this object(including id)
 	void copy(game_item c) {
 		name = c.name;
 		adjectives = c.adjectives;
@@ -247,23 +267,17 @@ struct game_item {
 		prop1 = c.prop1;
 		prop2 = c.prop2;
 		sprop1 = c.sprop1;
-		sprop2 = c.sprop2;
 		id = c.id;
 	}
 
 };
 
+// dependant-function prototypes
 game_item createItem(int);
 
-
-// function prototypes
-vector<string> delimit(const string &, char);
-string trimFirst(string &, char);
-bool isMatch(string, string);
-
-int determineAction(vector<string> &);
+// target resolution prototypes
 void resolveTarget(vector<string> &);
-vector<string> getInput();
+
 void initRooms();
 int d20(int = 0);
 
@@ -284,22 +298,26 @@ void doWear(vector<string> &);
 
 void doGameCheck(vector<string> &);
 
+/* A lot of these functions are templates because
+  it's easier to manage them that way. */
 
+// trap generics
+// isActive(T) - self-explanatory
 template<class T>
-bool isActive(T *t) {
-	return t->isArmed;
-};
-
+bool isActive(T *t) { return t->isArmed; };
 
 // weapon functions
+// getWeaponName(T) - returns weapon name of player or monster
 template<class T>
-string getWeapon(T *entity) { return entity->weapon.name; };
+string getWeaponName(T *entity) { return entity->weapon.name; };
 
+// getDamage(T) - returns weapon damage of player or monster
 template<class T>
 int getDamage(T *entity) { return entity->weapon.prop1; };
 
 
 // armor functions
+
 template<class T>
 string getArmor(T *entity) { return entity->armor.name; };
 
@@ -369,6 +387,7 @@ public:
 	vector<game_item> items;
 	game_item weapon, armor;
 
+	// constructor
 	game_player() {
 		gold = 0;
 		rloc = FOREST;
@@ -387,6 +406,7 @@ struct game_monster {
 	vector<game_item> items;
 	int difficulty;
 
+	// constructor
 	game_monster() {
 		difficulty = MONSTER_NONE;
 		description = "none";
@@ -396,18 +416,22 @@ struct game_monster {
 	}
 };
 
-void monsterDeath(game_monster *);
+// monster creation and death prototypes
 game_monster createMonster(int = MONSTER_NONE);
+void monsterDeath(game_monster *);
 
+/* trap struct
+ traps were supposed to be independent objects, but at this state,
+ they're just an accessory to game_room */
 struct game_trap {
-	string name, description, adjectives;
+	string name="trap";
 	bool isArmed = false;
 	int difficulty = TRAP_NONE;
 };
 
 // room struct, for fleshing out rooms and their attributes
 struct game_room {
-	bool hasRelic, beenVisited;
+	bool beenVisited;
 	string name, description, transition;
 	game_monster monster;
 	vector<game_item> items;
@@ -415,26 +439,21 @@ struct game_room {
 	long prop1, prop2;
 	game_trap trap;
 
+	// constructor
 	game_room() {
 		flags = 0;
 		name = description = transition = "";
-		hasRelic = beenVisited = false;
-	}
-
-	game_room(string name, string description, bool hasRelic) {
-		this->name = name;
-		this->description = description;
-		this->hasRelic = hasRelic;
+		beenVisited = false;
 	}
 };
 
-
-
+// command structure - for handling player input and holding targetting information
 struct game_command {
 	int cmd = COMMAND_UNKNOWN;
 	int type=0, ptype=0;
 	void *target, *parent;
 
+	// constructor
 	void clear() {
 		cmd = COMMAND_UNKNOWN;
 		type = ptype = TYPE_NONE;
@@ -442,19 +461,39 @@ struct game_command {
 	}
 };
 
+// command parser/text manipulation function prototypes
+vector<string> delimit(const string &, char);
+string trimFirst(string &, char);
+bool isMatch(string, string);
+int determineAction(vector<string> &);
+vector<string> getInput();
 game_command searchByType(long = 0);
 game_command searchByString(vector<string> &);
 
 
-// constant for rooms array
-const int GAME_ROOM_SIZE = END+1;
-
 // globals
+
+// player pointer - allocated in main()
 game_player *player;
+
+// room array pointer - allocated in main()
 game_room *rooms;
+
+/* global target mechanism
+ the code actually allows for this to not be global,
+ but it would have taken too long to implement
+*/
 game_command target;
+
+/* container address pointer vector
+ this keeps track of misc vector<game_item> lists IE:
+ treasure containers. The loot code generates them and
+ adds their address to this array. When game over happens,
+ it de-allocates each of them, preventing memory leaks.
+*/
 vector<void *> containers;
 
+// game state - used in main loop - global for reference
 int gameState;
 
 int main()
@@ -471,51 +510,47 @@ int main()
 	gameState = STATE_MENU;
 	while(gameState!=STATE_EXIT) {
 		switch(gameState) {
-			// main menu
-			case STATE_MENU:
+			case STATE_MENU:			// main menu
 				cout << "Please enter a choice:" << endl;
 				cout << "1: Show high-scores" << endl;
 				cout << "2: Play game" << endl;
 				cout << "3: Exit" << endl;
 				command = getInput();
 				choice = atoi(command[0].c_str());
-				switch(choice) {
-					case MENU_HISCORES:
+				switch(choice) {			// main menu selector
+					case MENU_HISCORES:		// show high scores
 						readHiScores();
 					break;
-					case MENU_PLAY:
+					case MENU_PLAY:			// start the game
 						cout << "Game initializing..." << endl;
 						gameState = STATE_INIT;
 					break;
-					case MENU_EXIT:
+					case MENU_EXIT:			// exit game
 						cout << "Thank you for playing dungeon delve!" << endl;
 						gameState = STATE_EXIT;
 					break;
-					default:
+					default:				// try again
 						cout << "Invalid choice." << endl;
 					break;
 				}
 			break;
-			// initialize game - this is an intermediary state
-			case STATE_INIT:
+			case STATE_INIT:			// initialize game - this is an intermediary state
+				// initialize game objects
 				player = new game_player();
 				initRooms();
 
-				// show first room
-				//cout << rooms[player->rloc].name << endl;
-				//cout << rooms[player->rloc].description << endl;
+				// show player first room
 				command.clear();
 				doLookBrief(command);
 				// game = running
 				gameState = STATE_PLAYING;
 			break;
-			// game is running
-			case STATE_PLAYING:
-				// clear target
+			case STATE_PLAYING:			// game is running
+				// resolve player input and derive target from it
 				command = getInput();
 				action = determineAction(command);
 				resolveTarget(command);
-				// identify target
+				// determine player command
 				if (action && isLiving(player)) {
 					switch (action) {
 						case COMMAND_CONTINUE:
@@ -554,24 +589,20 @@ int main()
 						case COMMAND_INVENTORY:
 							doInventory(command);
 						break;
-						case COMMAND_ESCAPE:
-						break;
-
 						case COMMAND_ENTER:
-							
+							// to be added at a later point
 						break;
 						case COMMAND_UNKNOWN:
 						default:
 							cout << "Unknown command" << endl;
 						break;
 					}
-					doGameCheck(command);
+					doGameCheck(command);			// called after every command
 				}
 			break;
-			// player died
-			case STATE_GAMEOVER:
+			case STATE_GAMEOVER:			// player either died or won
 				newHiScores();
-				// cleanup
+				// cleanup time
 				// delete container-list for boxes
 				int ci = containers.size();
 				for(int i=0; i < ci; i++) {
@@ -590,6 +621,7 @@ int main()
 	}
 }
 
+// doGameCheck(input) - called after every command. handles death and wins
 void doGameCheck(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
@@ -605,6 +637,7 @@ void doGameCheck(vector<string> &in) {
 }
 
 
+// adjCheck(input) - adjective checker for objects. A bit primitive in it's current form.
 template <class T>
 bool adjCheck(vector<string> in, T *obj) {
 	if(in.size() == 0) return true;
@@ -616,24 +649,27 @@ bool adjCheck(vector<string> in, T *obj) {
 	return true;
 };
 
+/* resolveTarget(in) - All this function does is set the 
+ 'target' global according to the command info from 'in'.
+*/
 void resolveTarget(vector<string> &in) {
 	target = searchByString(in);
 };
 
+// searchByType() - searches room and player items for a specific item ID
 game_command searchByType(long type) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
-	game_monster *m = &r->monster;
 	vector<game_item> *ir = &r->items;
 	vector<game_item> *ip = &p->items;
 	game_command target;
-	// check to ensure there is a command to be parsed
 
+	// check to ensure there is a command to be parsed
 	if (type != TYPE_NONE) {
 		// search player items
 		for (int i = 0; i < (int)ip->size(); i++) {
 			if (ip->at(i).type == type) {
-				// c-style - could not find an alternative
+				// c-style generic object manipulation - could not find an alternative
 				target.ptype = TYPE_PLAYER;
 				target.parent = reinterpret_cast<void *>(&p);
 				target.type = TYPE_ITEM;
@@ -645,7 +681,7 @@ game_command searchByType(long type) {
 		// search room items
 		for (int i = 0; i < (int)ir->size(); i++) {
 			if (ir->at(i).type == type) {
-				// c-style - could not find an alternative
+				// c-style generic object manipulation - could not find an alternative
 				target.ptype = TYPE_ROOM;
 				target.parent = reinterpret_cast<void *>(&r);
 				target.type = TYPE_ITEM;
@@ -657,7 +693,7 @@ game_command searchByType(long type) {
 
 	// check user weapon
 		if (p->weapon.type == type) {
-			// c-style - could not find an alternative
+			// c-style generic object manipulation - could not find an alternative
 			target.ptype = TYPE_PLAYER;
 			target.parent = reinterpret_cast<void *>(&p);
 			target.type = TYPE_ITEM;
@@ -666,13 +702,13 @@ game_command searchByType(long type) {
 
 		// check user armor
 		if (p->armor.type == type) {
-			// c-style - could not find an alternative
+			// c-style generic object manipulation - could not find an alternative
 			target.ptype = TYPE_PLAYER;
 			target.parent = reinterpret_cast<void *>(&p);
 			target.type = TYPE_ITEM;
 			target.target = reinterpret_cast<void *>(&p->armor);
 		}
-
+		// mark as unknown if it didn't find anything
 		if (target.type == TYPE_NONE) target.type = target.ptype = TYPE_UNKNOWN;
 	};
 	return target;
@@ -685,8 +721,8 @@ game_command searchByString(vector<string> &in) {
 	vector<game_item> *ir = &r->items;
 	vector<game_item> *ip = &p->items;
 	game_command target;
-	// check to ensure there is a command to be parsed
 
+	// check to ensure there is a command to be parsed
 	if (in.size() > 0) {
 		// grab target and remove it from vector
 		string targ = in.at(in.size() - 1);
@@ -697,7 +733,7 @@ game_command searchByString(vector<string> &in) {
 			if (isMatch(ip->at(i).name, targ)) {
 				// adjective check
 				if (adjCheck(in, &ip->at(i))) {
-					// c-style - could not find an alternative
+					// c-style generic object manipulation - could not find an alternative
 					target.ptype = TYPE_PLAYER;
 					target.parent = reinterpret_cast<void *>(&p);
 					target.type = TYPE_ITEM;
@@ -711,7 +747,7 @@ game_command searchByString(vector<string> &in) {
 			if (isMatch(ir->at(i).name, targ)) {
 				// adjective check
 				if (adjCheck(in, &ir->at(i))) {
-					// c-style - could not find an alternative
+					// c-style generic object manipulation - could not find an alternative
 					target.ptype = TYPE_ROOM;
 					target.parent = reinterpret_cast<void *>(&r);
 					target.type = TYPE_ITEM;
@@ -723,7 +759,7 @@ game_command searchByString(vector<string> &in) {
 		// check user weapon
 		if (isMatch(p->weapon.name, targ)) {
 			if (adjCheck(in, &p->weapon)) {
-				// c-style - could not find an alternative
+				// c-style generic object manipulation - could not find an alternative
 				target.ptype = TYPE_PLAYER;
 				target.parent = reinterpret_cast<void *>(&p);
 				target.type = TYPE_ITEM;
@@ -734,7 +770,7 @@ game_command searchByString(vector<string> &in) {
 		// check user armor
 		if (isMatch(p->armor.name, targ)) {
 			if (adjCheck(in, &p->armor)) {
-				// c-style - could not find an alternative
+				// c-style generic object manipulation - could not find an alternative
 				target.ptype = TYPE_PLAYER;
 				target.parent = reinterpret_cast<void *>(&p);
 				target.type = TYPE_ITEM;
@@ -745,62 +781,51 @@ game_command searchByString(vector<string> &in) {
 		// check monster
 		if (isMatch(m->name, targ)) {
 			if (adjCheck(in, m)) {
-				// c-style - could not find an alternative
+				// c-style generic object manipulation - could not find an alternative
 				target.ptype = TYPE_ROOM;
 				target.parent = reinterpret_cast<void *>(&r);
 				target.type = TYPE_MONSTER;
 				target.target = reinterpret_cast<void *>(m);
 			}
 		}
+
+		// if the player had a name, this is where that search would go.
+
+		// return targ to string vector
 		in.push_back(targ);
+
+		// mark as unknown if it didn't find anything
 		if (target.type == TYPE_NONE) target.type = target.ptype = TYPE_UNKNOWN;
-		// search player if (isMatch(p->name, target)) cout << "Affirmitive match: " << m->name << endl;
+
 	};
 	return target;
 };
 
+// determineAction(in) - 
 int determineAction(vector<string> &in) {
-	game_player *p = player;
-	game_room *r = &rooms[p->rloc];
-	game_monster *m = &r->monster;
-	vector<game_item> *ir = &r->items;
-	vector<game_item> *ip = &p->items;
-	string cmd, adjectives;
+	string cmd;
 	int cid;
-	// identify command
+
 	cmd = in[0];
+	// erase command from string vector
 	in.erase(in.begin());
-	if (isMatch("fight", cmd)) {
-		cid = COMMAND_FIGHT;
-	} else if (isMatch("run", cmd)) {
-		cid = COMMAND_RUN;
-	} else if (isMatch("continue", cmd)) {
-		cid = COMMAND_CONTINUE;
-	} else if (isMatch("go", cmd)) {
-		cid = COMMAND_GO;
-	} else if (isMatch("escape", cmd)) {
-		cid = COMMAND_ESCAPE;
-	} else if (isMatch("dodge", cmd)) {
-		cid = COMMAND_DODGE;
-	} else if (isMatch("inventory", cmd)) {
-		cid = COMMAND_INVENTORY;
-	} else if (isMatch("use", cmd)) {
-		cid = COMMAND_USE;
-	} else if (isMatch("wield", cmd)) {
-		cid = COMMAND_WIELD;
-	} else if (isMatch("wear", cmd)) {
-		cid = COMMAND_WEAR;
-	} else if (isMatch("jump", cmd)) {
-		cid = COMMAND_JUMP;
-	} else if (isMatch("look", cmd)) {
-		cid = COMMAND_LOOK;
-	} else if (isMatch("take", cmd)) {
-		cid = COMMAND_TAKE;
-	} else if(cmd.compare("") == 0) {
-		cid = COMMAND_ENTER;
-	} else {
-		cid = COMMAND_UNKNOWN;
-	}
+	// identify command
+	if (isMatch("fight", cmd))			cid = COMMAND_FIGHT;
+	else if (isMatch("run", cmd))		cid = COMMAND_RUN;
+	else if (isMatch("continue", cmd))	cid = COMMAND_CONTINUE;
+	else if (isMatch("go", cmd))		cid = COMMAND_GO;
+	else if (isMatch("escape", cmd))	cid = COMMAND_ESCAPE;
+	else if (isMatch("dodge", cmd))		cid = COMMAND_DODGE;
+	else if (isMatch("inventory", cmd)) cid = COMMAND_INVENTORY;
+	else if (isMatch("use", cmd))		cid = COMMAND_USE;
+	else if (isMatch("wield", cmd))		cid = COMMAND_WIELD;
+	else if (isMatch("wear", cmd))		cid = COMMAND_WEAR;
+	else if (isMatch("jump", cmd))		cid = COMMAND_JUMP;
+	else if (isMatch("look", cmd))		cid = COMMAND_LOOK;
+	else if (isMatch("take", cmd))		cid = COMMAND_TAKE;
+	else if(cmd.compare("") == 0)		cid = COMMAND_ENTER;
+	else								cid = COMMAND_UNKNOWN;
+	// asign cid to target
 	target.cmd = cid;
 	return cid;
 };
@@ -810,6 +835,8 @@ void doFight(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	game_monster *m = &r->monster;
+
+	// do player and environment checks
 	if (isRunning(r)) {
 		cout << "Fight? Fight the urge to fight and just RUN!" << endl;
 	} else if (m->difficulty == MONSTER_NONE) {
@@ -817,26 +844,31 @@ void doFight(vector<string> &in) {
 	} else if(!isLiving(m)) {
 		cout << "But the " + m->name + " is already dead!" << endl;
 	} else {
-		int pRoll, pHit;
+		// do combat calculations
+		int pRoll, pHit, mRoll, mHit, pDef, mDef;
+		// do roll
 		pRoll = d20();
-		pHit = getDamage(p);
-		int mRoll, mHit, pDef, mDef;
 		mRoll = d20();
+		// get dmg
+		pHit = getDamage(p);
 		mHit = getDamage(m);
+		// get def
 		pDef = getDefense(p);
 		mDef = getDefense(m);
 
-
 		cout << "You rolled: " << pRoll << " +" << pHit << " -" << mDef << endl;
 		cout << getName(m) << " rolled: " << mRoll << " +" << mHit << " -" << pDef << endl;
+		// add it all together
 		pHit += pRoll - mDef;
 		mHit += mRoll - pDef;
-		if(pHit >= mHit) {
-			cout << "You out-fox the " + getName(m) + " and land a solid blow with your " << getWeapon(p) << "!" << endl;
+
+		if(pHit >= mHit) {			// monster got hit
+			cout << "You out-fox the " + getName(m) + " and land a solid blow with your " << getWeaponName(p) << "!" << endl;
+			// hurt monster
 			m->HP--;
 			if(m->HP <= 0) monsterDeath(m);
-		} else if(mHit > pHit) {
-			cout << "The " + getName(m) + " slips into flanking position and lands a mighty blow with its " << getWeapon(m) << " that sends you reeling!" << endl;
+		} else if(mHit > pHit) {	// player got hit
+			cout << "The " + getName(m) + " slips into flanking position and lands a mighty blow with its " << getWeaponName(m) << " that sends you reeling!" << endl;
 			player->HP--;
 		}
 
@@ -1058,7 +1090,7 @@ void doLook(vector<string> &in) {
 			if(ri->size() > 0) {
 				cout << "You also see: " << endl;
 				for(game_item gi : *ri) {
-					if(!checkB(gi.flags, BIT_IMMOBILE)) cout << "a " << getDescriber(&gi) << endl;
+					if(!checkB(gi.flags, BIT_EXIT)) cout << "a " << getDescriber(&gi) << endl;
 				}
 				/*for(int i=0; i < (int)ri->size(); i++) {
 					game_item *gi = &ri->at(i);
@@ -1391,7 +1423,7 @@ void monsterDeath(game_monster *m) {
 
 	// check to see if he had a weapon
 	if (m->weapon.type > 0) {
-		cout << "His " << getWeapon(m) << " fall to the ground!" << endl;
+		cout << "His " << getWeaponName(m) << " fall to the ground!" << endl;
 		// drop weapon
 		ir->push_back(m->weapon);
 		m->weapon.clear();
@@ -1521,6 +1553,14 @@ game_monster createMonster(int id) {
 			m.name = "ogre";
 			m.adjectives = "disgusting";
 			break;
+		/*case MONSTER_FOREST_TROLL:
+			m.name = "ogre";
+			m.adjectives = "disgusting";
+			break;
+		case MONSTER_OGRE:
+			m.name = "ogre";
+			m.adjectives = "disgusting";
+			break;*/
 		case MONSTER_TROLL_KING:
 			m.name = "troll";
 			m.adjectives = "massive";
@@ -1538,25 +1578,28 @@ game_monster createMonster(int id) {
 				// generate weapon
 				m.items.push_back(createItem((rand() % (ITEM_WEAPON_END - ITEM_WEAPON-1)) + ITEM_WEAPON+1));
 				cout << endl;
-				break;
+			break;
 			case 1:
+				// generate armor
 				m.items.push_back(createItem((rand() % (ITEM_ARMOR_END - ITEM_ARMOR - 1)) + ITEM_ARMOR + 1));
-				break;
+			break;
 			case 2:
+				// generate item
 				m.items.push_back(createItem((rand() % (ITEM_ITEM_END - ITEM_ITEM - 1)) + ITEM_ITEM + 1));
-				break;
+			break;
 			default:
 				cout << "createMonster() error" << endl;
+			break;
 		}
 	}
 
 	return m;
 };
 
+//  createItem(id) - this functions creates items from an ID and returns the object created
 game_item createItem(int id) {
 	game_item newItem;
 	vector<game_item> *treasure;
-	vector<game_item> *li;
 	switch(id) {
 		case ITEM_RANDOM_TREASURE_BOX:
 			newItem.name = "box";
@@ -1570,6 +1613,54 @@ game_item createItem(int id) {
 			treasure->push_back(createItem((rand() % (ITEM_ITEM_END - ITEM_ITEM - 1)) + ITEM_ITEM + 1));
 			containers.push_back(treasure);
 			newItem.prop1 = containers.size()-1;
+			setB(newItem.flags, BIT_CONTAINER | BIT_IMMOBILE);
+			break;
+		case ITEM_RED_CHEST:
+			newItem.name = "chest";
+			newItem.adjectives = "small ornate red";
+			newItem.description = "It's a nondescript small red chest.";
+			newItem.type = id;
+			treasure = new vector<game_item>;
+			// add key
+			treasure->push_back(createItem(ITEM_RED_KEY));
+			containers.push_back(treasure);
+			newItem.prop1 = containers.size() - 1;
+			setB(newItem.flags, BIT_CONTAINER | BIT_IMMOBILE);
+			break;
+		case ITEM_BLUE_CHEST:
+			newItem.name = "chest";
+			newItem.adjectives = "small ornate blue";
+			newItem.description = "It's a nondescript small blue chest.";
+			newItem.type = id;
+			treasure = new vector<game_item>;
+			// add key
+			treasure->push_back(createItem(ITEM_RED_KEY));
+			containers.push_back(treasure);
+			newItem.prop1 = containers.size() - 1;
+			setB(newItem.flags, BIT_CONTAINER | BIT_IMMOBILE);
+			break;
+		case ITEM_GREEN_CHEST:
+			newItem.name = "chest";
+			newItem.adjectives = "small ornate green";
+			newItem.description = "It's a nondescript small green chest.";
+			newItem.type = id;
+			treasure = new vector<game_item>;
+			// add key
+			treasure->push_back(createItem(ITEM_RED_KEY));
+			containers.push_back(treasure);
+			newItem.prop1 = containers.size() - 1;
+			setB(newItem.flags, BIT_CONTAINER | BIT_IMMOBILE);
+			break;
+		case ITEM_YELLOW_CHEST:
+			newItem.name = "chest";
+			newItem.adjectives = "small ornate yellow";
+			newItem.description = "It's a nondescript small yellow chest.";
+			newItem.type = id;
+			treasure = new vector<game_item>;
+			// add key
+			treasure->push_back(createItem(ITEM_YELLOW_KEY));
+			containers.push_back(treasure);
+			newItem.prop1 = containers.size() - 1;
 			setB(newItem.flags, BIT_CONTAINER | BIT_IMMOBILE);
 			break;
 		case ITEM_FISTS:
@@ -1826,7 +1917,7 @@ and the armor smells like it's only mildly been used. Beats nothing.";
 		case ITEM_CHAIN_SHIRT:
 			newItem.name = "shirt";
 			newItem.adjectives = "old chain";
-			newItem.description = "This shirt is pretty light, all things considered - it doesn't restrict \
+			newItem.description = "This shirt is pretty light for how well it covers- it doesn't restrict \
 your mobility, yet also provides decent protection from most attacks. Not too shabby.";
 			setB(newItem.flags, BIT_ARMOR);
 			newItem.prop1 = 4;
@@ -1835,7 +1926,7 @@ your mobility, yet also provides decent protection from most attacks. Not too sh
 			newItem.name = "armor";
 			newItem.adjectives = "rusty plate";
 			newItem.description = "What is garbage like this doing in a place like this? Though surprising \
-durable, time has not been nice to this rust-bucket - you feel like you might contract lockjaw just from \
+durable, time has not been kind to this rust-bucket - you feel like you might contract lockjaw just from \
 looking at it.";
 			setB(newItem.flags, BIT_ARMOR);
 			newItem.prop1 = 5;
@@ -2062,6 +2153,7 @@ lit by a few torches on the wall.";
 	r->name = "Large Stable";
 	r->description = "Upon entering this room, you realize you've stumbled across a stable. There are several horses in the stalls one side of the\
 	room and on the other there are several large bales of hay. You are thankful for the signs of life the horses bring you.";
+	
 
 	r = &rooms[BOSS_ENTRY];
 	r->name = "Large Golden Door";
@@ -2090,13 +2182,13 @@ the caves all night. You breathe a sigh of relief as you realize that it's over 
 	r->items.push_back(createItem(ITEM_SECRET_EXIT));
 	// populated rooms - TODO
 
+	// randomly generate objects and monsters
 	for (int i = 0; i < GAME_ROOM_SIZE; i++) {
 		game_room *r = &rooms[i];
 		game_monster *m = &r->monster;
 		game_trap *t = &rooms[i].trap;
 		if (!checkB(r->flags, ROOM_NEUTRAL)) {
 			t->isArmed = rand() % 2;
-			r->hasRelic = rand() % 2;
 			if (rand() % 4 != 0) {
 				*m = createMonster(MONSTER_RANDOM);
 			}
