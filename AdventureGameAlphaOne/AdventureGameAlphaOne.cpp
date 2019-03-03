@@ -1,5 +1,13 @@
-// AdventureGameAlphaOne.cpp : This file contains the 'main' function. Program execution begins and ends there.
-//
+/* AdventureGameAlphaOne.cpp
+ Most of the code is by Daniel. The parts that John wrote were the room descriptions,
+ hi-score saving and loading, and a good portion part of the doGo() code. The original idea
+ was also his. The file is a bit scattered, but it was very difficult to fit this all into 
+ one file, so you'll have to forgive the disparate comments use of comments. Even with the 
+ extension, we did not have enough time to polish everything. This is very close to a 
+ fully functional object-oriented engine.
+ The game is completely functional, has no game-breaking bugs that I am aware of, and is
+ 100% beatable - Daniel D.
+ */
 
 #include "pch.h"
 #include <iostream>
@@ -11,6 +19,7 @@
 using namespace std;
 
 
+// file reading propotypes and constants
 const char *FILE_HISCORES = "HighScores.txt";
 const int MAX_SCORES = 5;
 int hiScore[MAX_SCORES+1];
@@ -18,6 +27,8 @@ void newHiScores();
 void readHiScores();
 
 
+
+// bit manipulation inline functions: setbit, clearbit, togglebit, checkbit
 inline void setB(long &src, long val) {
 	src |= (val);
 };
@@ -34,7 +45,9 @@ inline bool checkB(long &src, long val) {
 	return ((src) & (val));
 };
 
-enum item_states {
+// item_bit_states - bit-states for item flags.
+// 1 = 0000 0001, 2 = 0000 0010, 4 = 0000 0100, etc.. could have been done as hex, IE 0x01, 0x02, but decided this was more readable
+enum item_bit_states {
 	BIT_IMMOBILE = 1,
 	BIT_EXIT = 2,
 	BIT_BLOCKED_VISIBLE = 4,
@@ -44,9 +57,11 @@ enum item_states {
 	BIT_POTION = 64,
 	BIT_WEAPON = 128,
 	BIT_ARMOR = 256,
+	BIT_GOLD = 512
 };
 
-enum room_states {
+// room_bit_states - bit-states for room flags. also used once on player flags(late design change)
+enum room_bit_states {
 	ROOM_DARK = 1,
 	ROOM_RUNNING = 2,
 	ROOM_NEUTRAL = 4,
@@ -55,7 +70,7 @@ enum room_states {
 	ROOM_WIN = 32
 };
 
-// states for game status
+// game_states - possible states for game menu\status
 enum game_states {
 	STATE_EXIT=0,
 	STATE_MENU,
@@ -64,20 +79,23 @@ enum game_states {
 	STATE_GAMEOVER
 };
 
-// states for main menu
+// menu_states - possible states for main menu choice
 enum menu_states {
 	MENU_HISCORES=1,
 	MENU_PLAY,
 	MENU_EXIT
 };
 
-// states for commands entered
+// game_commands - possible states for command entered
 enum game_commands {
 	COMMAND_UNKNOWN = 0,
 	COMMAND_CONTINUE,
 	COMMAND_FIGHT,
 	COMMAND_SEARCH,
 	COMMAND_GO,
+	COMMAND_STATUS,
+	COMMAND_HEALTH,
+	COMMAND_WEALTH,
 	COMMAND_INVENTORY,
 	COMMAND_LOOK,
 	COMMAND_USE,
@@ -88,12 +106,14 @@ enum game_commands {
 	COMMAND_ESCAPE,
 	COMMAND_ENTER,
 	COMMAND_WEAR,
-	COMMAND_WIELD
+	COMMAND_WIELD,
+	COMMAND_VERBOSITY,
+	COMMAND_APPRAISE
 };
 
-// states for different types of objects
+// states for different types of objects - used in conjunction with game_command for target identification
 enum game_object_types {
-	TYPE_NONE = 0,
+	TYPE_NONE,
 	TYPE_ITEM,
 	TYPE_MONSTER,
 	TYPE_PLAYER,
@@ -115,45 +135,22 @@ enum game_monsters {
 	MONSTER_LARGE_SKELETON,
 	MONSTER_BUGBEAR,
 	MONSTER_OGRE,
+	MONSTER_TROLL_GUARD,
 	MONSTER_TROLL_KING=10,
 	MONSTER_RANDOM				// special case
 };
 
 // game_locations - tags for different rooms, each corresponding to a room within the room array
 enum game_locations {
-	FOREST,
-	FOREST_2,
-	FOREST_3,
-	PIT_1,
-	PIT_2,
+	FOREST, FOREST_2, FOREST_3,
+	PIT_1, PIT_2,
 	ENTRY,
 	CORRIDOR,
-	RED_1,
-	RED_2,
-	RED_3,
-	RED_4,
-	RED_5,
-	RED_EXIT,
-	GREEN_1,
-	GREEN_2,
-	GREEN_3,
-	GREEN_4,
-	GREEN_5,
-	GREEN_EXIT,
-	BLUE_1,
-	BLUE_2,
-	BLUE_3,
-	BLUE_4,
-	BLUE_5,
-	BLUE_EXIT,
-	YELLOW_1,
-	YELLOW_2,
-	YELLOW_3,
-	YELLOW_4,
-	YELLOW_5,
-	YELLOW_EXIT,
-	BOSS_ENTRY,
-	BOSS,
+	RED_1, RED_2, RED_3, RED_4, RED_5, RED_EXIT,
+	GREEN_1, GREEN_2, GREEN_3, GREEN_4, GREEN_5, GREEN_EXIT,
+	BLUE_1, BLUE_2, BLUE_3, BLUE_4, BLUE_5, BLUE_EXIT,
+	YELLOW_1, YELLOW_2, YELLOW_3, YELLOW_4, YELLOW_5, YELLOW_EXIT,
+	BOSS_ENTRY, BOSS,
 	EXIT,
 	SECRET_CHAMBER,
 	END							// marker for room array size
@@ -176,19 +173,10 @@ enum game_items {				// all negative entries are natural weapons/armor
 	ITEM_CLOTHES,
 	ITEM_RAGS,
 	ITEM_NONE = 0,
-	ITEM_RED_KEY,
-	ITEM_BLUE_KEY,
-	ITEM_YELLOW_KEY,
-	ITEM_GREEN_KEY,
-	ITEM_RED_DOOR,
-	ITEM_BLUE_DOOR,
-	ITEM_YELLOW_DOOR,
-	ITEM_GREEN_DOOR,
-	ITEM_GOLD_DOOR,
-	ITEM_BURROW_ENT,
-	ITEM_BURROW_EXIT,
-	ITEM_SECRET_ENT,
-	ITEM_SECRET_EXIT,
+	ITEM_RED_KEY, ITEM_BLUE_KEY, ITEM_YELLOW_KEY, ITEM_GREEN_KEY, ITEM_GOLD_KEY,			// colored keys
+	ITEM_RED_DOOR, ITEM_BLUE_DOOR, ITEM_YELLOW_DOOR, ITEM_GREEN_DOOR, ITEM_GOLD_DOOR,		// corresponding colored doors
+	ITEM_BURROW_ENT, ITEM_BURROW_EXIT,			// burrow entrance and exit
+	ITEM_SECRET_ENT, ITEM_SECRET_EXIT,			// secret chamber entrance and exit
 	ITEM_WEAPON=100,			// weapon drops begin
 	ITEM_DAGGER,
 	ITEM_SCIMITAR,
@@ -205,6 +193,7 @@ enum game_items {				// all negative entries are natural weapons/armor
 	ITEM_RUSTY_PLATE,
 	ITEM_ARMOR_END,				// armor drops end
 	ITEM_ITEM = 300,			// item drops begin
+	ITEM_GOLD_PIECES, ITEM_GOLD_HANDFUL, ITEM_GOLD_PILE,
 	ITEM_RANDOM_TREASURE_BOX,
 	ITEM_SMALL_POTION,
 	ITEM_LARGE_POTION,
@@ -212,11 +201,11 @@ enum game_items {				// all negative entries are natural weapons/armor
 	ITEM_ITEM_END,				// item drops end
 	ITEM_BOTTLE,				// special case items go here
 	ITEM_SHINY_PLATE,
-	ITEM_GOLD_KEY,
 	ITEM_RED_CHEST,
 	ITEM_GREEN_CHEST,
 	ITEM_BLUE_CHEST,
-	ITEM_YELLOW_CHEST
+	ITEM_YELLOW_CHEST,
+	ITEM_BIG_TREASURE_CHEST
 };
 
 
@@ -225,10 +214,9 @@ struct game_item {
 	string name;
 	string adjectives;
 	string description;
-	int type = ITEM_NONE;
-	long flags;
-	long prop1;
-	long prop2;
+	int type;
+	int kills;
+	long flags, prop1, prop2, prop3;
 	string sprop1;
 	int id;
 
@@ -238,6 +226,7 @@ struct game_item {
 	// isArmor - prop1 contains armor def
 	// isWeapon - prop1 contains weapon dmg
 	// isContainer - prop1 contains containers[] array index
+	// isGold - prop3 contains value
 
 	// constructor
 	game_item() {
@@ -252,9 +241,7 @@ struct game_item {
 	void clear() {
 		name = adjectives = description = sprop1 = "";
 		type = ITEM_NONE;
-		flags = 0;
-		prop1 = 0;
-		prop2 = 0;
+		flags = prop1 = prop2 = prop3 = 0;
 	}
 
 	// copy(item) - copies the provided item data to this object(including id)
@@ -266,6 +253,7 @@ struct game_item {
 		flags = c.flags;
 		prop1 = c.prop1;
 		prop2 = c.prop2;
+		prop3 = c.prop3;
 		sprop1 = c.sprop1;
 		id = c.id;
 	}
@@ -275,10 +263,19 @@ struct game_item {
 // dependant-function prototypes
 game_item createItem(int);
 
+// item value constants
+const int VALUE_MINOR = 1;
+const int VALUE_MAJOR = 10;
+const int VALUE_AWESOME = 100;
+
+
 // target resolution prototypes
 void resolveTarget(vector<string> &);
 
+// room data function prototype
 void initRooms();
+
+// d20 function prototype
 int d20(int = 0);
 
 // action function prototypes
@@ -291,20 +288,29 @@ void doJump(vector<string> &);
 void doLook(vector<string> &);
 void doLookBrief(vector<string> &);
 void doUse(vector<string> &);
+void doStatus(vector<string> &);
+void doWealth(vector<string> &);
+void doHealth(vector<string> &);
 void doInventory(vector<string> &);
 void doTake(vector<string> &);
 void doWield(vector<string> &);
 void doWear(vector<string> &);
+void doVerbosity(vector<string> &);
+void doAppraise(vector<string> &);
 
-void doGameCheck(vector<string> &);
+// post-action function prototype
+void doPostCheck(vector<string> &);
 
 /* A lot of these functions are templates because
   it's easier to manage them that way. */
 
 // trap generics
-// isActive(T) - self-explanatory
+// isArmed(T) - self-explanatory
 template<class T>
-bool isActive(T *t) { return t->isArmed; };
+bool isArmed(T *t) { return t->isArmed; };
+
+template<class T>
+bool isTrapped(T *t) { return t->trap.isArmed; };
 
 // weapon functions
 // getWeaponName(T) - returns weapon name of player or monster
@@ -338,6 +344,9 @@ template<class T>
 bool isLiving(T & entity) { return (entity->HP > 0); };
 
 template<class T>
+int getValue(T & entity) { return (entity.prop3); };
+
+template<class T>
 string getDescriber(T *entity) { return (entity->adjectives + " " + entity->name); };
 
 template<class T>
@@ -365,6 +374,10 @@ bool isContainer(T *i) { return checkB(i->flags, BIT_CONTAINER); };
 template<class T>
 bool isExit(T *i) { return checkB(i->flags, BIT_EXIT); };
 
+template<class T>
+bool isGold(T *i) { return checkB(i->flags, BIT_GOLD); };
+
+
 // room bit checkers
 template<class T>
 bool hasExit(T *i) { return !checkB(i->flags, ROOM_NOEXIT); };
@@ -375,27 +388,32 @@ bool isNeutral(T *r) { return checkB(r->flags, ROOM_NEUTRAL); };
 template<class T>
 bool isRunning(T *r) { return checkB(r->flags, ROOM_RUNNING); };
 
+// maximum player HP constant
+const int MAX_HP = 5;
 
 // player struct - self explanatory
 struct game_player {
 public:
 	string name;
-	int bonus;
-	long gold;
-	int HP;
-	int rloc;
+	int kills, trapWinCount, trapFailCount, gold, HP, rloc;
+	long flags;
 	vector<game_item> items;
 	game_item weapon, armor;
 
 	// constructor
 	game_player() {
-		gold = 0;
+		gold = kills = trapWinCount = trapFailCount = flags = 0;
 		rloc = FOREST;
 		weapon = createItem(ITEM_FISTS);
 		armor = createItem(ITEM_CLOTHES);
-		HP = 3;
+		HP = MAX_HP;
 	}
 
+	int getKills() { return kills; };
+	int getTrapTotalCount() { return (trapWinCount + trapFailCount); };
+	int getTrapWinCount() { return trapWinCount; };
+	int getTrapFailCount() { return trapFailCount; };
+	int getGold() { return gold; };
 };
 
 // monster struct, for fleshing out monsters
@@ -421,17 +439,23 @@ game_monster createMonster(int = MONSTER_NONE);
 void monsterDeath(game_monster *);
 
 /* trap struct
- traps were supposed to be independent objects, but at this state,
+ traps were supposed to be independent objects, but due to time constraints,
  they're just an accessory to game_room */
 struct game_trap {
-	string name="trap";
-	bool isArmed = false;
-	int difficulty = TRAP_NONE;
+	string name;
+	bool isArmed;
+	int difficulty;
+
+	game_trap() {
+		name = "trap";
+		isArmed = false;
+		difficulty = TRAP_NONE;
+	}
 };
 
 // room struct, for fleshing out rooms and their attributes
 struct game_room {
-	bool beenVisited;
+	bool hasVisited;
 	string name, description, transition;
 	game_monster monster;
 	vector<game_item> items;
@@ -441,9 +465,9 @@ struct game_room {
 
 	// constructor
 	game_room() {
-		flags = 0;
+		flags = prop1 = prop2 = 0;
 		name = description = transition = "";
-		beenVisited = false;
+		hasVisited = false;
 	}
 };
 
@@ -465,7 +489,7 @@ struct game_command {
 vector<string> delimit(const string &, char);
 string trimFirst(string &, char);
 bool isMatch(string, string);
-int determineAction(vector<string> &);
+int determineCommand(vector<string> &);
 vector<string> getInput();
 game_command searchByType(long = 0);
 game_command searchByString(vector<string> &);
@@ -548,7 +572,7 @@ int main()
 			case STATE_PLAYING:			// game is running
 				// resolve player input and derive target from it
 				command = getInput();
-				action = determineAction(command);
+				action = determineCommand(command);
 				resolveTarget(command);
 				// determine player command
 				if (action && isLiving(player)) {
@@ -558,6 +582,15 @@ int main()
 						break;
 						case COMMAND_GO:
 							doGo(command);
+						break;
+						case COMMAND_STATUS:
+							doStatus(command);
+							break;
+						case COMMAND_HEALTH:
+							doHealth(command);
+						break;
+						case COMMAND_WEALTH:
+							doWealth(command);
 						break;
 						case COMMAND_LOOK:
 							doLook(command);
@@ -589,6 +622,12 @@ int main()
 						case COMMAND_INVENTORY:
 							doInventory(command);
 						break;
+						case COMMAND_VERBOSITY:
+							doVerbosity(command);
+						break;
+						case COMMAND_APPRAISE:
+							doAppraise(command);
+						break;
 						case COMMAND_ENTER:
 							// to be added at a later point
 						break;
@@ -597,11 +636,59 @@ int main()
 							cout << "Unknown command" << endl;
 						break;
 					}
-					doGameCheck(command);			// called after every command
+					doPostCheck(command);			// called after every command
 				}
 			break;
 			case STATE_GAMEOVER:			// player either died or won
+				game_player *p = player;
+				game_monster *tk = &rooms[BOSS].monster;
+				double pointMult = 0.75;				// beggars can't be choosers
+				if(isLiving(p)) pointMult = 1;			// winner's wage
+				
+				p->gold *= pointMult;
+				cout << "Your total gold score was: " << p->gold << "." << endl;
+
+				int iScore=0;
+				// add up item values
+				for(game_item i : player->items) iScore += getValue(i);
+				iScore *= pointMult;
+				cout << "Your item score was: " << iScore << "." << endl;
+
+				// add up kills and trap stats
+				int pScore= (p->getKills() + p->getTrapTotalCount() + (p->getTrapFailCount() / 2)) * pointMult;
+				cout << "Your performance score was: " << pScore << "." << endl;
+
+				// add up room-visited score
+				bool allVisited = true;
+				int vScore=0;
+				for(int i=0; i < END; i++) {
+					if(rooms[i].hasVisited) vScore++;
+					else allVisited = false;
+				}
+
+				// every room visited?
+				if(allVisited) {
+					cout << "You visited every room! Congratulations!" << endl;
+					// +100%
+					vScore *= 2;
+				} else cout << "You missed some rooms! Try to find them next time" << endl;
+				vScore *= pointMult;
+				
+				// sum up the different scores
+				p->gold += iScore + pScore + vScore;
+
+				if (!isLiving(tk)) {
+					cout << "You killed the troll king! Your village would be proud!" << endl;
+					// add in 25% total bonus for killing troll king
+					p->gold *= 1.25;
+				} else cout << "Next time, try to destroy the king! Your village is counting on you!" << endl;
+
+
+				cout << "Your final score is: " << p->getGold() << "." << endl;
+				cout << (isLiving(p) ? "Congratulations!" : "Better luck next game!");
+				// jot down hiscores
 				newHiScores();
+
 				// cleanup time
 				// delete container-list for boxes
 				int ci = containers.size();
@@ -621,8 +708,8 @@ int main()
 	}
 }
 
-// doGameCheck(input) - called after every command. handles death and wins
-void doGameCheck(vector<string> &in) {
+// doPostCheck(input) - called after every command. handles death and wins
+void doPostCheck(vector<string> &in) {
 	game_player *p = player;
 	game_room *r = &rooms[p->rloc];
 	if (!isLiving(p)) {
@@ -801,20 +888,23 @@ game_command searchByString(vector<string> &in) {
 	return target;
 };
 
-// determineAction(in) - 
-int determineAction(vector<string> &in) {
+// determineCommand(in) - removes command from input, deciphers it, and adds it to target + returns it
+int determineCommand(vector<string> &in) {
 	string cmd;
 	int cid;
 
 	cmd = in[0];
-	// erase command from string vector
-	in.erase(in.begin());
 	// identify command
 	if (isMatch("fight", cmd))			cid = COMMAND_FIGHT;
 	else if (isMatch("run", cmd))		cid = COMMAND_RUN;
+	else if (isMatch("escape", cmd))	cid = COMMAND_RUN;
+	else if (isMatch("flee", cmd))		cid = COMMAND_RUN;
 	else if (isMatch("continue", cmd))	cid = COMMAND_CONTINUE;
 	else if (isMatch("go", cmd))		cid = COMMAND_GO;
-	else if (isMatch("escape", cmd))	cid = COMMAND_ESCAPE;
+	else if (isMatch("status", cmd))	cid = COMMAND_STATUS;
+	else if (isMatch("info", cmd))		cid = COMMAND_STATUS;
+	else if (isMatch("health", cmd))	cid = COMMAND_HEALTH;
+	else if (isMatch("wealth", cmd))	cid = COMMAND_WEALTH;
 	else if (isMatch("dodge", cmd))		cid = COMMAND_DODGE;
 	else if (isMatch("inventory", cmd)) cid = COMMAND_INVENTORY;
 	else if (isMatch("use", cmd))		cid = COMMAND_USE;
@@ -823,12 +913,43 @@ int determineAction(vector<string> &in) {
 	else if (isMatch("jump", cmd))		cid = COMMAND_JUMP;
 	else if (isMatch("look", cmd))		cid = COMMAND_LOOK;
 	else if (isMatch("take", cmd))		cid = COMMAND_TAKE;
+	else if (isMatch("verbosity", cmd)) cid = COMMAND_VERBOSITY;
+	else if (isMatch("appraise", cmd))	cid = COMMAND_APPRAISE;
 	else if(cmd.compare("") == 0)		cid = COMMAND_ENTER;
 	else								cid = COMMAND_UNKNOWN;
 	// asign cid to target
 	target.cmd = cid;
+	// erase command from string vector, since we've identified it
+	in.erase(in.begin());
+
 	return cid;
 };
+
+void doVerbosity(vector<string> &in) {
+	cout << "==Game commands==" << endl;
+	cout << "=Combat=" << endl;
+	cout << "<FIGHT> - attack the monster in the room" << endl;
+	cout << "<DODGE> - attempt to evade trap" << endl;
+	cout << "<RUN|ESCAPE|FLEE> - tactical escape from monster" << endl;
+	cout << "=Movement=" << endl;
+	cout << "<CONTINUE> - moves to the next room" << endl;
+	cout << "<GO> [location] - tries to enter location or obstacle" << endl;
+	cout << "<JUMP> - moves player over room obstacle" << endl;
+	cout << "=Interaction=" << endl;
+	cout << "<TAKE> [target] - attempt to pick up target" << endl;
+	cout << "<USE> [target] - attempt to use target" << endl;
+	cout << "<WIELD> [item] - attempt to wield item as weapon" << endl;
+	cout << "<WEAR> [item] - attempt to wear item as armor" << endl;
+	cout << "<APPRAISE> [target] - size-up your target" << endl;
+	cout << "=Player Information=" << endl;
+	cout << "<LOOK> {target} - show information about room or target" << endl;
+	cout << "<INVENTORY> - shows current player items" << endl;
+	cout << "<STATUS|INFO> - gives an overview of player state and accomplishments." << endl;
+	cout << "<HEALTH> - shows state of player health." << endl;
+	cout << "<WEALTH> - shows financial state of player." << endl;
+	cout << "<VERBOSITY> - show this information screen" << endl;
+};
+
 
 // doFight() - do combat between player and monster
 void doFight(vector<string> &in) {
@@ -846,27 +967,32 @@ void doFight(vector<string> &in) {
 	} else {
 		// do combat calculations
 		int pRoll, pHit, mRoll, mHit, pDef, mDef;
+		pHit = mHit = pDef = mDef = 0;
 		// do roll
 		pRoll = d20();
 		mRoll = d20();
-		// get dmg
-		pHit = getDamage(p);
-		mHit = getDamage(m);
-		// get def
-		pDef = getDefense(p);
-		mDef = getDefense(m);
+		if(!isRunning(p)) {			// combat roll, otherwise just d20s
+			// get dmg
+			pHit = getDamage(p);
+			mHit = getDamage(m);
+			// get def
+			pDef = getDefense(p);
+			mDef = getDefense(m);
+		}
+			cout << "You rolled: " << pRoll << " +" << pHit << " -" << mDef << endl;
+			cout << getName(m) << " rolled: " << mRoll << " +" << mHit << " -" << pDef << endl;
 
-		cout << "You rolled: " << pRoll << " +" << pHit << " -" << mDef << endl;
-		cout << getName(m) << " rolled: " << mRoll << " +" << mHit << " -" << pDef << endl;
-		// add it all together
-		pHit += pRoll - mDef;
-		mHit += mRoll - pDef;
+			// add it all together
+			pHit += pRoll - mDef;
+			mHit += mRoll - pDef;
 
 		if(pHit >= mHit) {			// monster got hit
-			cout << "You out-fox the " + getName(m) + " and land a solid blow with your " << getWeaponName(p) << "!" << endl;
-			// hurt monster
-			m->HP--;
-			if(m->HP <= 0) monsterDeath(m);
+			if (!isRunning(p)) {
+				cout << "You out-fox the " + getName(m) + " and land a solid blow with your " << getWeaponName(p) << "!" << endl;
+				// hurt monster
+				m->HP--;
+				if (m->HP <= 0) monsterDeath(m);
+			} else cout << "You fake out the " + getName(m) + " and safely escape!" << endl;
 		} else if(mHit > pHit) {	// player got hit
 			cout << "The " + getName(m) + " slips into flanking position and lands a mighty blow with its " << getWeaponName(m) << " that sends you reeling!" << endl;
 			player->HP--;
@@ -874,6 +1000,8 @@ void doFight(vector<string> &in) {
 
 	}
 };
+
+
 
 // doDodge() 
 void doDodge(vector<string> &in) {
@@ -883,24 +1011,38 @@ void doDodge(vector<string> &in) {
 	game_trap *t = &r->trap;
 	if (isRunning(r)) {
 		cout << "There's no time to look for traps.... just RUN!" << endl;
-	} else if (t->isArmed) {
+	} else if (isTrapped(r)) {
 		if(isLiving(m)) {
 			cout << "You attempt to dodge through the traps with the " + getName(m) + " in hot pursuit!" << endl;
 		} else {
 			cout << "You attempt to dodge through the traps!" << endl;
 		}
+		// do combat calculations
+		// do roll
 		int pRoll = d20();
-		int tRoll = d20();
 		int mRoll = d20();
-		cout << "You rolled: " << pRoll << endl;
+		int tRoll = d20();
+		// get def
+		int pDef = getDefense(p);
+		int mDef = 0;
+		if(isLiving(m)) mDef = getDefense(m);
+		
+
+		cout << "You rolled: " << pRoll << " +" << pDef << endl;
 		cout << "Trap rolled: " << tRoll << endl;
-		if(isLiving(m)) cout << getName(m) << " rolled: " << mRoll << endl;
+		if(isLiving(m)) cout << getName(m) << " rolled: " << mRoll << " +" << mDef << endl;
+
+		// tally up score
+		pRoll += pDef;
+		mRoll += mDef;
 
 		if (pRoll >= tRoll) {
 			cout << "You safely manuever through the trap!" << endl;
+			p->trapWinCount++;
 		} else if (tRoll > pRoll) {
 			cout << "You failed to dodge the trap!" << endl;
-			player->HP--;
+			p->trapFailCount++;
+			p->HP--;
 		}
 		if(isLiving(m)) {
 			if (mRoll > tRoll) {
@@ -924,7 +1066,6 @@ void doJump(vector<string> &in) {
 	game_monster *m = &r->monster;
 	game_trap *t = &r->trap;
 	if(checkB(r->flags, ROOM_JUMPEXIT) && in.size() == 0) {
-		cout << "Giving yourself enough room for a running start, you take a flying leap into the unknown!" << endl;
 		cout << r->transition;
 		p->rloc = r->prop1;
 		doLookBrief(in);
@@ -955,7 +1096,7 @@ void doGo(vector<string> &in) {
 		if(isExit(ni)) {
 				if(isLiving(m)) {
 					cout << "The " << getName(m) << " blocks your path!" << endl;
-				} else if (isActive(t)) {
+				} else if (isTrapped(r)) {
 					cout << "But the " << getName(t) << " is armed!" << endl;
 				} else {
 					if(checkB(ni->flags, BIT_LOCKED)) {
@@ -976,9 +1117,10 @@ void doGo(vector<string> &in) {
 					if(checkB(ni->flags, BIT_LOCKED)) {
 						cout << "The " << getName(ni) << " seems to be locked" << endl;
 					} else {
+						if(ni->sprop1.size() > 0) cout << ni->sprop1 << endl;
 						cout << "You pass through the " << getName(ni) << endl;
-							p->rloc = ni->prop1;
-							doLookBrief(in);
+						p->rloc = ni->prop1;
+						doLookBrief(in);
 					}
 				}
 		} else {
@@ -992,6 +1134,65 @@ void doGo(vector<string> &in) {
 	}
 }
 
+// doHealth - HEALTH command, which tells player about their current health
+void doHealth(vector<string> &in) {
+	game_player *p = player;
+	cout << "You are feeling ";
+	switch (p->HP) {
+		case 1:
+			cout << "pretty smashed up - not sure how much longer you can hold on";
+		break;
+		case 2:
+			cout << "very beat up - your head aches and you're seeing double.";
+		break;
+		case 3:
+			cout << "a bit beat up - your vision is blurry and you're having trouble staying focused";
+		break;
+		case 4:
+			cout << "slightly fatigued, and a bit hungry, too.";
+		break;
+		case 5:
+			cout << "in good condition - no better or worse than normal";
+		break;
+		case 6:
+			cout << "pretty good. You could probably use a bath, though.";
+		break;
+		case 7:
+			cout << "great! The future feels bright!";
+		break;
+		case 8:
+			cout << "FANTASTIC!!! What was in that stuff you drank? You've never felt so good!";
+		break;
+		default:
+			cout << "like you've caught a BUG. You should probably see a doctor.";
+			break;
+	}
+	cout << endl;
+};
+
+// doWealth - WEALTH command, which tells player about their current gold amount
+void doWealth(vector<string> &in) {
+	game_player *p = player;
+	cout << "You've collected: " << p->getGold() << " gold pieces" << endl;
+};
+
+// doStatus - STATUS command, which tells player about their current health and state
+void doStatus(vector<string> &in) {
+	game_player *p = player;
+	doHealth(in);
+
+	cout << "You are wielding: " << getDescriber(&p->weapon) << "(+" << getDamage(p) << ")" << endl;
+	cout << "You are wearing: " << getDescriber(&p->armor) << "(+" << getDefense(p) << ")" << endl;
+	cout << "Foes vanquished: " << p->getKills() << endl;
+	cout << "Trap escapes: " << p->getTrapWinCount() << endl;
+	cout << "Trap fails: " << p->getTrapFailCount() << endl;
+	cout << "Total trap attempts: " << p->getTrapTotalCount() << endl;
+	int visits=0;
+	for(int i=0; i < END; i++) {
+		if(rooms[i].hasVisited) visits++;
+	}
+	cout << "Rooms visited: " << visits << endl;
+};
 // doContinue - CONTINUE command, which moves the player forward
 void doContinue(vector<string> &in) {
 	game_room *r = &rooms[player->rloc];
@@ -1007,7 +1208,7 @@ void doContinue(vector<string> &in) {
 	} else if(t->isArmed) {
 		cout << "The room is trapped! Are you trying to die?" << endl;
 	} else {
-		r->beenVisited = true;
+		r->hasVisited = true;
 		cout << r->transition << endl;
 		if(p->rloc == RED_EXIT || p->rloc == GREEN_EXIT || p->rloc == BLUE_EXIT || p->rloc == YELLOW_EXIT) p->rloc = CORRIDOR;
 		else p->rloc++;
@@ -1046,9 +1247,19 @@ void doRun(vector<string> &in) {
 		cout << r->transition << endl;
 		p->rloc++;
 		r = &rooms[p->rloc];
-		cout << r->name << endl;
-	} else if(hasExit(r)) {
-		cout << "This is where run should work" << endl;
+		doLookBrief(in);
+	} else if(hasExit(r) && (isTrapped(r) || isLiving(m))) {
+		setB(p->flags, ROOM_RUNNING);
+		if(isTrapped(r)) doDodge(in);
+		if(isLiving(m)) doFight(in);
+		if(isLiving(p)) {
+			cout << "You manage to out-juke the " << getName(m) << " and make it safely into the next." << endl;
+			cout << r->transition << endl;
+			p->rloc++;
+			r = &rooms[p->rloc];
+			doLookBrief(in);
+		}
+		clearB(p->flags, ROOM_RUNNING);
 	} else if(!hasExit(r)) {
 		cout << "There is no obvious path forward." << endl;
 	} else {
@@ -1083,19 +1294,15 @@ void doLook(vector<string> &in) {
 			cout << r->name << endl;
 			cout << r->description << endl;
 			if (isLiving(m)) {
-				cout << "A " << getDescriber(m) << " stands before you." << endl;
+				cout << getDescriber(m) << " stands before you." << endl;
 			} else if(!isLiving(m) && m->difficulty != MONSTER_NONE) {
-				cout << "The corpse of a " << m->name << " lies motionless here." << endl;
+				cout << "The corpse of " << getDescriber(m) << " lies motionless here." << endl;
 			}
 			if(ri->size() > 0) {
 				cout << "You also see: " << endl;
 				for(game_item gi : *ri) {
-					if(!checkB(gi.flags, BIT_EXIT)) cout << "a " << getDescriber(&gi) << endl;
+					cout << getDescriber(&gi) << endl;
 				}
-				/*for(int i=0; i < (int)ri->size(); i++) {
-					game_item *gi = &ri->at(i);
-					cout << "a " << getDescriber(gi) << endl;
-				}*/
 			}
 
 			if (t->isArmed) {
@@ -1113,10 +1320,64 @@ void doInventory(vector<string> &in) {
 	game_trap *t = &r->trap;
 	cout << "You are carrying:" << endl;
 	for (game_item gi : *pi) {
-		cout << "a " << getDescriber(&gi) << "," << endl;
+		cout << getDescriber(&gi) << endl;
 	}
-	if(pi->size() == 0) cout << "nothing." << endl;
+	if(pi->size() == 0) cout << "nothing" << endl;
 	else cout << endl;
+}
+
+void doAppraise(vector<string> &in) {
+	game_player *p = player;
+	game_room *r = &rooms[p->rloc];
+	game_monster *m = &r->monster;
+	game_trap *t = &r->trap;
+	vector<game_item> *ir = &r->items;
+	vector<game_item> *ip = &p->items;
+	if (target.type != TYPE_NONE) {
+		if (target.type == TYPE_ITEM) {
+			game_item *ni = reinterpret_cast<game_item *> (target.target);
+			if (!checkB(ni->flags, BIT_IMMOBILE)) {
+				// item can be taken
+				if (target.ptype == TYPE_ROOM) {
+					cout << "You'll need to pick that up first." << endl;
+				} else if (target.ptype == TYPE_PLAYER) {
+					int iVal = getValue(*ni);
+					cout << "Based on your miserly skill of gauging intrinsic value, you estimate that the " << getName(ni) << " " << endl;
+					if (iVal < 5) cout << "is probably worth a few gold.";
+					else if (iVal <= 10) cout << "is probably worth a small handful of gold.";
+					else if (iVal <= 20) cout << "is worth lots of gold.";
+					else if (iVal <= 50) cout << " is worth a small fortune.";
+					else if (iVal <= 100) cout << " is worth more than most make in a lifetime.";
+					else cout << "could buy you a small army or a small country.";
+					cout << endl;
+				} else {
+					cout << "doAppraise() error: How did we arrive here?" << endl;
+				}
+			} else {
+				// immobile
+				cout << "What's the use of appraising it? You can't sell it!" << endl;
+			}
+		} else if (target.type == TYPE_MONSTER) {
+			game_monster *nm = reinterpret_cast<game_monster *> (target.target);
+			int mDiff = getDamage(m) + getDefense(m);
+			int pDiff = getDamage(p) + getDefense(p);
+			int diff = mDiff - pDiff;
+			cout << "Taking into account it's abilities, compared to your own, you believe ";
+			if (diff < -5) cout << "the " << getName(nm) << " should be a piece of cake.";
+			else if (diff <= -3) cout << "the " << getName(nm) << " shouldn't be too tough.";
+			else if (diff <= -1) cout << "the " << getName(nm) << " is less skilled, but tough.";
+			else if (diff <= 0) cout << "the " << getName(nm) << " is truly a worth opponent.";
+			else if (diff <= 2) cout << "the " << getName(nm) << " is tougher, but not by much.";
+			else if (diff <= 3) cout << "the " << getName(nm) << " is quite a bit tougher than you.";
+			else if (diff <= 5) cout << "the " << getName(nm) << " is far stronger than you. This is an uphill battle.";
+			else if (diff > 5) cout << "the " << getName(nm) << " is a mythical being of immense power. Winning will require great luck and strategy.";
+			cout << endl;
+		} else {
+			cout << "APPRAISE what?" << endl;
+		}
+	} else {
+		cout << "APPRAISE what?" << endl;
+	}
 }
 
 void doUse(vector<string> &in) {
@@ -1131,26 +1392,32 @@ void doUse(vector<string> &in) {
 			game_item *ni = reinterpret_cast<game_item *> (target.target);
 			// item can be taken
 			if (target.ptype == TYPE_ROOM) {	// the object is on the ground
-				if(isExit(ni)) {
-					// pretend it's movement
-					doGo(in);
-					return;
-				} else if (isContainer(ni)) {	// treasure box
-					vector<game_item> *li = reinterpret_cast<vector<game_item> *> (containers[containers.size() - 1]);
-					if(li->size() != 0) {
-						cout << "You open the " << getDescriber(ni) << " and loot its contents." << endl;
-						cout << "You take:" << endl;
-						int lSize = li->size();
-						for(int i=0; i < lSize; i++) {
-							cout << "a " << getDescriber(&li->at(0)) << endl;
-							ip->push_back(li->at(0));
-							li->erase(li->begin());
+				if(!isLiving(m)) {
+					if(isExit(ni)) {
+						// pretend it's movement
+						doGo(in);
+						return;
+					} else if (isContainer(ni)) {	// treasure box
+						vector<game_item> *li = reinterpret_cast<vector<game_item> *> (containers[ni->prop1]);
+						if(li->size() != 0) {
+							cout << "You open the " << getDescriber(ni) << " and loot its contents." << endl;
+							cout << "You take:" << endl;
+							int lSize = li->size();
+							for(int i=0; i < lSize; i++) {
+								cout << "a " << getDescriber(&li->at(0)) << endl;
+								ip->push_back(li->at(0));
+								li->erase(li->begin());
+							}
+						} else {
+							cout << "But the " << getDescriber(ni) << " is empty!" << endl;
 						}
-					} else {
-						cout << "But the " << getDescriber(ni) << " is empty!" << endl;
+					} else {						// object is not an exit so ??
+						cout << "You reach out and touch the " << getName(ni) << "." << endl;
 					}
-				} else {						// object is not an exit so ??
-					cout << "You reach out and touch the " << getName(ni) << "." << endl;
+				} else if(isTrapped(r)) {
+					cout << "The " << getName(t) << " blocks your path! DODGE it first!" << endl;
+				} else {
+						cout << "But " << getDescriber(m) << " is guarding that!" << endl;
 				}
 			} else if (target.ptype == TYPE_PLAYER) {
 				if (areEqual(&p->weapon, ni)) {						// weapon and target are the same
@@ -1169,7 +1436,7 @@ void doUse(vector<string> &in) {
 								// heal player
 								p->HP += getHealAmt(ni);
 								// cap extra HP at 5
-								if(p->HP > 5) p->HP = 5;
+								if(p->HP > MAX_HP+3) p->HP = MAX_HP+3;
 								// create bottle
 								cout << "You stow the empty bottle away." << endl;
 								ip->push_back(createItem(ITEM_BOTTLE));
@@ -1177,6 +1444,42 @@ void doUse(vector<string> &in) {
 								ip->erase(ip->begin() + i);
 								// re-align ni since vector erasure breaks it
 								ni = &ip->at(i);
+							} else if (ni->type == ITEM_RED_KEY || ni->type == ITEM_BLUE_KEY || ni->type == ITEM_YELLOW_KEY || ni->type == ITEM_GREEN_KEY) {
+								// at some point I need to write a combine function to streamline this
+								cout << "As you lay your hands on your " << getName(ni) << ", it glows briefly for a moment... ";
+								game_command rFind = searchByType(ITEM_RED_KEY);
+								game_command bFind = searchByType(ITEM_BLUE_KEY);
+								game_command yFind = searchByType(ITEM_YELLOW_KEY);
+								game_command gFind = searchByType(ITEM_GREEN_KEY);
+								if(ni->type == ITEM_RED_KEY || ni->type == ITEM_BLUE_KEY || ni->type == ITEM_YELLOW_KEY || ni->type == ITEM_GREEN_KEY) {
+									if(rFind.ptype == TYPE_PLAYER && bFind.ptype == TYPE_PLAYER && yFind.ptype == TYPE_PLAYER && gFind.ptype == TYPE_PLAYER) {
+										// player has all keys - create gold key
+										game_item *rki = reinterpret_cast<game_item *> (rFind.target);
+										game_item *bki = reinterpret_cast<game_item *> (bFind.target);
+										game_item *gki = reinterpret_cast<game_item *> (gFind.target);
+										game_item *yki = reinterpret_cast<game_item *> (yFind.target);
+										cout << "the glow steadily increases into a golden aura... your " << getDescriber(ni) << " appears to be transforming!" << endl;
+										int iMax = ip->size()-1;
+										for (int k = iMax; k >= 0; k--) {		// search player iventory
+											if(areEqual(&ip->at(k), rki) || areEqual(&ip->at(k), bki) || areEqual(&ip->at(k), yki) || areEqual(&ip->at(k), gki)) {
+												cout << "Your " << getDescriber(&ip->at(k)) << " suddenly vanishes!";
+												ip->erase(ip->begin() + k);
+											}
+										}
+										if (areEqual(&p->weapon, rki) || areEqual(&p->weapon, bki) || areEqual(&p->weapon, yki) || areEqual(&p->weapon, gki)) {
+											cout << "The " << getDescriber(&p->weapon) << " in your hands suddenly vanishes!" << endl;
+											cout << "[You are now unarmed]" << endl;
+											p->weapon = createItem(ITEM_FISTS);
+										}
+										ip->push_back(createItem(ITEM_GOLD_KEY));
+										cout << "You now hold a " << getDescriber(&ip->at(ip->size()-1)) << "!" << endl;
+										// re-align ni to new key
+										ni = &ip->at(ip->size()-1);
+									} else {
+										// dont have all keys
+										cout << "but fades." << endl;
+									}
+								}
 							}
 						}
 					}
@@ -1190,6 +1493,8 @@ void doUse(vector<string> &in) {
 		} else {
 			cout << "USE what?" << endl;
 		}
+	} else {
+		cout << "USE what?" << endl;
 	}
 }
 
@@ -1250,6 +1555,8 @@ void doWield(vector<string> &in) {
 		} else {
 			cout << "WIELD what?" << endl;
 		}
+	} else {
+		cout << "WIELD what?" << endl;
 	}
 }
 
@@ -1305,11 +1612,12 @@ void doWear(vector<string> &in) {
 				cout << "You'd have no idea how to do that." << endl;
 			}
 		} else if (target.type == TYPE_MONSTER) {
-			//game_monster *nm = reinterpret_cast<game_monster *> (target.target);
 			cout << "Thinking about taking up tanning? Eh, not today." << endl;
 		} else {
 			cout << "WEAR what?" << endl;
 		}
+	} else {
+		cout << "WEAR what?" << endl;
 	}
 }
 
@@ -1326,14 +1634,22 @@ void doTake(vector<string> &in) {
 			if(!checkB(ni->flags, BIT_IMMOBILE)) {
 				// item can be taken
 				if(target.ptype == TYPE_ROOM) {
-					// alternative code for OO
-					//vector<game_item> *ri = &(reinterpret_cast<game_room *> (target.parent))->items;
-					for(int i=0; i < (int)ir->size(); i++) {
+					// go through room items
+					int iMax = ir->size()-1;
+						for (int i = iMax; i >= 0; i--) {
 						// match target with inventory
 						if(areEqual(&ir->at(i), ni)) {
-							cout << "You pick up the " << ni->name << endl;
+							cout << "You pick up " << getDescriber(ni) << endl;
 							// add to inventory
-							ip->push_back(*ni);
+							if(isGold(&ir->at(i))) {
+								// tally gold and add to user total
+								int gVal = getValue(ir->at(i));
+								p->gold += gVal;
+								cout << "In total, you counted " << gVal << " pieces of gold." << endl;
+							} else {
+								// add to inventory
+								ip->push_back(*ni);
+							}
 							// erase from old item list
 							ir->erase(ir->begin() + i);
 						}
@@ -1352,10 +1668,10 @@ void doTake(vector<string> &in) {
 			game_monster *nm = reinterpret_cast<game_monster *> (target.target);
 			cout << "I think the " << getName(m) << " might have a problem with that." << endl;
 		} else {
-			// needs to be fixed later - doesn't work
-			cout << "Take what?" << endl;
-			//cout << getDescription(reinterpret_cast<game_item *> (target.target)) << endl;
+			cout << "TAKE what?" << endl;
 		}
+	} else {
+		cout << "TAKE what?" << endl;
 	}
 }
 
@@ -1437,7 +1753,7 @@ void monsterDeath(game_monster *m) {
 			ir->push_back(gi);
 		}
 	}
-
+	p->kills++;
 	im->clear();
 };
 
@@ -1511,59 +1827,55 @@ game_monster createMonster(int id) {
 	switch (newMob) {
 		case MONSTER_GREEN_GOBLIN:
 			m.name = "goblin";
-			m.adjectives = "small green";
+			m.adjectives = "a small green";
 			break;
 		case MONSTER_RED_GOBLIN:
 			m.name = "goblin";
-			m.adjectives = "red";
+			m.adjectives = "a red";
 			break;
 		case MONSTER_PURPLE_GOBLIN:
 			m.name = "goblin";
-			m.adjectives = "large purple";
+			m.adjectives = "a large purple";
 			break;
 		case MONSTER_SMALL_SKELETON:
 			m.name = "skeleton";
-			m.adjectives = "small";
+			m.adjectives = "a small";
 			break;
 		case MONSTER_KOBOLD:
 			m.name = "kobold";
-			m.adjectives = "vicious";
+			m.adjectives = "a vicious";
 			break;
 		case MONSTER_SKELETON:
 			m.name = "skeleton";
-			m.adjectives = "bleached";
+			m.adjectives = "a bleached";
 			break;
 		case MONSTER_GNOLL:
 			m.name = "gnoll";
-			m.adjectives = "large";
+			m.adjectives = "a large";
 			break;
 		case MONSTER_ORC:
 			m.name = "orc";
-			m.adjectives = "nasty";
+			m.adjectives = "a nasty";
 			break;
 		case MONSTER_LARGE_SKELETON:
 			m.name = "skeleton";
-			m.adjectives = "giant";
+			m.adjectives = "a giant";
 			break;
 		case MONSTER_BUGBEAR:
 			m.name = "bugbear";
-			m.adjectives = "greasy-looking";
+			m.adjectives = "a greasy-looking";
 			break;
 		case MONSTER_OGRE:
 			m.name = "ogre";
-			m.adjectives = "disgusting";
+			m.adjectives = "a disgusting";
 			break;
-		/*case MONSTER_FOREST_TROLL:
-			m.name = "ogre";
-			m.adjectives = "disgusting";
+		case MONSTER_TROLL_GUARD:
+			m.name = "troll";
+			m.adjectives = "a guardian";
 			break;
-		case MONSTER_OGRE:
-			m.name = "ogre";
-			m.adjectives = "disgusting";
-			break;*/
 		case MONSTER_TROLL_KING:
 			m.name = "troll";
-			m.adjectives = "massive";
+			m.adjectives = "the massive king";
 			break;
 		default:
 			m.name = "error";
@@ -1572,6 +1884,7 @@ game_monster createMonster(int id) {
 		break;
 	}
 
+	// loot generation
 	while (rand() % 2) {
 		switch (rand() % 3) {
 			case 0:
@@ -1592,7 +1905,9 @@ game_monster createMonster(int id) {
 			break;
 		}
 	}
-
+	// didn't have time to add weapons/armor to monsters, so they get leather rags
+	// and claws that give a m.difficulty bonus.
+	m.weapon.prop1 = m.difficulty;
 	return m;
 };
 
@@ -1601,9 +1916,26 @@ game_item createItem(int id) {
 	game_item newItem;
 	vector<game_item> *treasure;
 	switch(id) {
+		case ITEM_BIG_TREASURE_CHEST:
+			newItem.name = "chest";
+			newItem.adjectives = "a massive golden ornate";
+			newItem.description = "A huge golden treasure chest. You've hit the motherlode!";
+			newItem.type = id;
+			treasure = new vector<game_item>;
+			// lots of goodies
+			for(int i=0; i < 2; i++) {
+				treasure->push_back(createItem((rand() % (ITEM_WEAPON_END - ITEM_WEAPON - 1)) + ITEM_WEAPON + 1));
+				treasure->push_back(createItem((rand() % (ITEM_ARMOR_END - ITEM_ARMOR - 1)) + ITEM_ARMOR + 1));
+				treasure->push_back(createItem((rand() % (ITEM_ITEM_END - ITEM_ITEM - 1)) + ITEM_ITEM + 1));
+			}
+			treasure->push_back(createItem(ITEM_SHINY_PLATE));
+			containers.push_back(treasure);
+			newItem.prop1 = containers.size() - 1;
+			setB(newItem.flags, BIT_CONTAINER | BIT_IMMOBILE);
+			break;
 		case ITEM_RANDOM_TREASURE_BOX:
 			newItem.name = "box";
-			newItem.adjectives = "ornate";
+			newItem.adjectives = "a small ornate treasure";
 			newItem.description = "A metal box. Maybe there's stuff inside?";
 			newItem.type = id;
 			treasure = new vector<game_item>;
@@ -1617,7 +1949,7 @@ game_item createItem(int id) {
 			break;
 		case ITEM_RED_CHEST:
 			newItem.name = "chest";
-			newItem.adjectives = "small ornate red";
+			newItem.adjectives = "a small ornate red";
 			newItem.description = "It's a nondescript small red chest.";
 			newItem.type = id;
 			treasure = new vector<game_item>;
@@ -1629,7 +1961,7 @@ game_item createItem(int id) {
 			break;
 		case ITEM_BLUE_CHEST:
 			newItem.name = "chest";
-			newItem.adjectives = "small ornate blue";
+			newItem.adjectives = "a small ornate blue";
 			newItem.description = "It's a nondescript small blue chest.";
 			newItem.type = id;
 			treasure = new vector<game_item>;
@@ -1641,7 +1973,7 @@ game_item createItem(int id) {
 			break;
 		case ITEM_GREEN_CHEST:
 			newItem.name = "chest";
-			newItem.adjectives = "small ornate green";
+			newItem.adjectives = "a small ornate green";
 			newItem.description = "It's a nondescript small green chest.";
 			newItem.type = id;
 			treasure = new vector<game_item>;
@@ -1653,7 +1985,7 @@ game_item createItem(int id) {
 			break;
 		case ITEM_YELLOW_CHEST:
 			newItem.name = "chest";
-			newItem.adjectives = "small ornate yellow";
+			newItem.adjectives = "a small ornate yellow";
 			newItem.description = "It's a nondescript small yellow chest.";
 			newItem.type = id;
 			treasure = new vector<game_item>;
@@ -1663,9 +1995,34 @@ game_item createItem(int id) {
 			newItem.prop1 = containers.size() - 1;
 			setB(newItem.flags, BIT_CONTAINER | BIT_IMMOBILE);
 			break;
+		case ITEM_GOLD_PIECES:
+			newItem.name = "gold";
+			newItem.adjectives = "some pieces of";
+			newItem.description = "A couple pieces of gold. Salvage law says they're yours - if you can take them!";
+			newItem.type = id;
+			newItem.prop3 = (rand() % 5) + 2;
+			setB(newItem.flags, BIT_GOLD);
+		break;
+		case ITEM_GOLD_HANDFUL:
+			newItem.name = "gold";
+			newItem.adjectives = "a handful of";
+			newItem.description = "A handful of gold pieces - enough to fix hundreds of broken doors! Someone's thinkin \
+about early retirement!";
+			newItem.type = id;
+			newItem.prop3 = (rand() % 20) + 5;
+			setB(newItem.flags, BIT_GOLD);
+			break;
+		case ITEM_GOLD_PILE:
+			newItem.name = "gold";
+			newItem.adjectives = "a massive pile of";
+			newItem.description = "Holy moly! High-risk, high reward! There's enough here to buy a village!";
+			newItem.type = id;
+			newItem.prop3 = (rand() % 100) + 20;
+			setB(newItem.flags, BIT_GOLD);
+			break;
 		case ITEM_FISTS:
 			newItem.name = "fists";
-			newItem.adjectives = "";
+			newItem.adjectives = "your";
 			newItem.description = "Your old chums, law and order. They haven't let you down yet.";
 			newItem.type = id;
 			newItem.prop1 = 0;
@@ -1673,7 +2030,7 @@ game_item createItem(int id) {
 		break;
 		case ITEM_CLAWS:
 			newItem.name = "claws";
-			newItem.adjectives = "sharp";
+			newItem.adjectives = "your sharp";
 			newItem.description = "Enhanced fingernails. The pointy-ends face out.";
 			newItem.type = id;
 			newItem.prop1 = 1;
@@ -1681,15 +2038,16 @@ game_item createItem(int id) {
 			break;
 		case ITEM_CLOTHES:
 			newItem.name = "clothes";
-			newItem.adjectives = "";
+			newItem.adjectives = "your";
 			newItem.description = "Although trendy, in your time of need, you feel these just aren't cutting it. \
-With trolls and all that, you'd think there'd be some armor to pilfer.";
+With those trolls you and all that, you'd think there'd be some armor to pilfer somewhere. These will have to do \
+for now, though.";
 			setB(newItem.flags, BIT_ARMOR | BIT_IMMOBILE);
 			newItem.prop1 = 0;
 			break;
 		case ITEM_RAGS:
 			newItem.name = "rags";
-			newItem.adjectives = "";
+			newItem.adjectives = "your";
 			newItem.description = "Although worn and moth-eaten, these thick tatters seems to provide a small amount \
 of padding against conventional weaponry.";
 			setB(newItem.flags, BIT_ARMOR | BIT_IMMOBILE);
@@ -1697,37 +2055,41 @@ of padding against conventional weaponry.";
 			break;
 		case ITEM_BOTTLE:
 			newItem.name = "bottle";
-			newItem.adjectives = "empty";
+			newItem.adjectives = "an empty";
 			newItem.description = "Although empty, it once held some great juice. You hold the bottle close to your \
 heart and cherish the memory.";
+			newItem.prop3 = VALUE_MINOR;
 			break;
 		case ITEM_SMALL_POTION:
 			newItem.name = "bottle";
-			newItem.adjectives = "small red";
+			newItem.adjectives = "a small red";
 			newItem.description = "A clear bottle filled to the brim with a strange red liquid, sealed with a stopper. \
 Your brain tells you to not drink strange liquids, but your heart is chanting 'chug it!'";
 			setB(newItem.flags, BIT_POTION);
 			newItem.prop1 = 1;
+			newItem.prop3 = VALUE_MAJOR;
 			break;
 		case ITEM_LARGE_POTION:
 			newItem.name = "bottle";
-			newItem.adjectives = "large red";
+			newItem.adjectives = "a large red";
 			newItem.description = "A clear bottle filled to the brim with a strange red liquid, sealed with a stopper. \
 This one seems unusually large.";
 			setB(newItem.flags, BIT_POTION);
 			newItem.prop1 = 3;
+			newItem.prop3 = VALUE_MAJOR * 3;
 			break;
 		case ITEM_ELIXIR:
 			newItem.name = "bottle";
-			newItem.adjectives = "tiny crystal";
+			newItem.adjectives = "a tiny crystal";
 			newItem.description = "A tiny crystal bottle filled with a strange purple liquid. You wonder why \
 anyone would craft such a nice bottle for this - it's barely a swig...";
 			setB(newItem.flags, BIT_POTION);
 			newItem.prop1 = 5;
+			newItem.prop3 = VALUE_MAJOR * 7;
 			break;
 		case ITEM_RED_DOOR:
 			newItem.name = "door";
-			newItem.adjectives = "large red steel";
+			newItem.adjectives = "a large red steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
@@ -1735,53 +2097,65 @@ human. A fist-sized lock stands out at eye level, but otherwise, the fixture hol
 			break;
 		case ITEM_GREEN_DOOR:
 			newItem.name = "door";
-			newItem.adjectives = "large green steel";
+			newItem.adjectives = "a large green steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = GREEN_1;
+			newItem.sprop1 = 	"As you approach the door you notice that torches line the walls lighting the room \
+you've just walked into. You open the door and head down the dimly lit passage. After a short while, the passage \
+opens into a room.";
 			break;
 		case ITEM_BLUE_DOOR:
 			newItem.name = "door";
-			newItem.adjectives = "large blue steel";
+			newItem.adjectives = "a large blue steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = BLUE_1;
+			newItem.sprop1 = "As you approach the door you notice that torches line the walls lighting the room \
+you've just walked into. You open the door and head down the dimly lit passage. After a short while, the passage \
+opens into a room.";
 			break;
 		case ITEM_YELLOW_DOOR:
 			newItem.name = "door";
-			newItem.adjectives = "large yellow steel";
+			newItem.adjectives = "a large yellow steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = YELLOW_1;
+			newItem.sprop1 = "As you approach the door you notice that torches line the walls lighting the room \
+you've just walked into. You open the door and head down the dimly lit passage. After a short while, the passage \
+opens into a room.";
 			break;
 		case ITEM_GOLD_DOOR:
 			newItem.name = "door";
-			newItem.adjectives = "large gold steel";
+			newItem.adjectives = "a large gold steel";
 			newItem.description = "At around 12 feet high, this door is much larger than what you'd expect for a \
 human. A fist-sized lock stands out at eye level, but otherwise, the fixture holds no other discernible qualities.";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE | BIT_LOCKED);
 			newItem.prop1 = BOSS_ENTRY;
 			newItem.prop2 = ITEM_GOLD_KEY;
-			newItem.sprop1 = "You approach the large golden door with your golden key.As you draw near, your key \
+			newItem.sprop1 = "You approach the large golden door with your golden key. As you draw near, your key \
 begins to glow, and one by one, each of the 4 colored locks fall to the ground. As the final lock hits the ground \
 you hear a rumbling and the room starts to shake slightly. A blazing light shoots out from the door, and it slowly \
 swings open.";
 			break;
 		case ITEM_SECRET_ENT:
 			newItem.name = "door";
-			newItem.adjectives = "large steel";
-			newItem.description = "This massive steel slab is almost more wall than door; even if you had a means of \
+			newItem.adjectives = "a massive granite";
+			newItem.description = "This massive granite slab is almost more wall than door; even if you had a means of \
 opening it, it would require great strength to do so. An ornate indentation of a skull sits in the middle of the steel.";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE | BIT_LOCKED);
 			newItem.prop1 = SECRET_CHAMBER;
 			newItem.prop2 = ITEM_GOLD_KEY;
+			newItem.sprop1 = "As you approach the door your golden keys begins to hum quietly, followed by a faint glow \
+After a moment, the massive slab slowly groans to life, and an unlit passage opens up into into a room. You pass through \
+the door.";
 			break;
 		case ITEM_SECRET_EXIT:
 			newItem.name = "door";
-			newItem.adjectives = "large steel";
+			newItem.adjectives = "a large steel";
 			newItem.description = "Huh - guess it was a door after all. No wonder - they kept the treasure room stocked! \
 You almost wish you were a pirate, just so you could brag about all the booty you plundered";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
@@ -1789,156 +2163,180 @@ You almost wish you were a pirate, just so you could brag about all the booty yo
 			break;
 		case ITEM_BURROW_ENT:
 			newItem.name = "burrow";
-			newItem.adjectives = "small rounded";
+			newItem.adjectives = "a small rounded";
 			newItem.description = "A small burrow is dug into the wall here, though by the markings, you aren't sure \
 what dug it. If you were to squeeze, you could probably make your way through it.";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = CORRIDOR;
+			newItem.sprop1 = "You crawl down into the burrow and begin shimmying through. Loose dirt flies up in \
+your hair and on your face and clothes(not that you weren't already filthy). With significant labor, \
+you squeeze through";
 			break;
 		case ITEM_BURROW_EXIT:
-			newItem.name = "hole";
-			newItem.adjectives = "small rounded";
+			newItem.name = "burrow";
+			newItem.adjectives = "a small rounded";
 			newItem.description = "It's the hole you came in from. You think you could probably squeeze \
 back through, but you'd probably get all dirty again.";
 			setB(newItem.flags, BIT_EXIT | BIT_IMMOBILE);
 			newItem.prop1 = ENTRY;
+			newItem.sprop1 = "You crawl down into the burrow and begin shimmying through. Loose dirt flies up in \
+your hair and on your face and clothes(not that you weren't already filthy). With significant labor, \
+you squeeze through";
 			break;
 		case ITEM_RED_KEY:
 			newItem.name = "key";
-			newItem.adjectives = "large red";
+			newItem.adjectives = "a large red";
 			newItem.description = "Is this really supposed to be a key? It doesn't look like it'd fit in \
-any tumbler you've ever seen. The size is understandable, but it doesn't seem to have any teeth to it. ";
+any tumbler you've ever seen. The size might be understandable, but it doesn't seem to have any teeth to \
+it, either.";
 			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
 			newItem.prop1 = 4;
+			newItem.prop3 = VALUE_MAJOR * 2.5;
 			break;
 		case ITEM_BLUE_KEY:
 			newItem.name = "key";
-			newItem.adjectives = "large blue";
+			newItem.adjectives = "a large blue";
 			newItem.description = "You might as well call this thing a mace, because it sure doesn't look \
 like a key. Maybe there's some special purpose to it, but you don't seem to be able to find it.";
 			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
 			newItem.prop1 = 4;
+			newItem.prop3 = VALUE_MAJOR * 2.5;
 			break;
 		case ITEM_YELLOW_KEY:
 			newItem.name = "key";
-			newItem.adjectives = "large yellow";
+			newItem.adjectives = "a large yellow";
 			newItem.description = "Large and unembellished was the apparent motto of whoever designed this \
-thing. If it were just a tad longer, you think it could make a good prybar.";
+thing. If it were just a tad longer, you think it could serve as a good prybar.";
 			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
 			newItem.prop1 = 4;
+			newItem.prop3 = VALUE_MAJOR * 2.5;
 			break;
 		case ITEM_GREEN_KEY:
 			newItem.name = "key";
-			newItem.adjectives = "large green";
+			newItem.adjectives = "a large green";
 			newItem.description = "This thing really looks like it was designed for trolls - a long, crude \
 blunt instrument with a pointy end. It could be some some radical new door-opening technology the world has \
-never seen before, or maybe it's just an object to cause blunt-force trauma? Hard to say.";
+never seen before, or maybe it's just to cause blunt-force trauma? Hard to say.";
 			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
 			newItem.prop1 = 4;
+			newItem.prop3 = VALUE_MAJOR*2.5;
 			break;
 		case ITEM_GOLD_KEY:
 			newItem.name = "key";
-			newItem.adjectives = "solid gold";
+			newItem.adjectives = "a solid gold";
 			newItem.description = "Wow. Guess those were keys after all. Maybe you underestimated those trolls? \
 Despite this thing being made of SOLID GOLD, it's surprisingly light. You could probably even show off with this \
 thing, if you ever make it back to the village";
 			setB(newItem.flags, BIT_KEY | BIT_WEAPON);
 			newItem.prop1 = 10;
+			newItem.prop3 = VALUE_AWESOME*2;
 
 			break;
 		case ITEM_DAGGER:
 			newItem.name = "dagger";
-			newItem.adjectives = "small";
+			newItem.adjectives = "a small";
 			newItem.description = "A small dagger.";
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 2;
+			newItem.prop3 = VALUE_MINOR*5;
 			break;
 		case ITEM_SCIMITAR:
 			newItem.name = "dagger";
-			newItem.adjectives = "small";
+			newItem.adjectives = "a small";
 			newItem.description = "A small dagger.";
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 3;
+			newItem.prop3 = VALUE_MAJOR;
 			break;
 		case ITEM_RAPIER:
 			newItem.name = "rapier";
-			newItem.adjectives = "rusty";
+			newItem.adjectives = "a rusty";
 			newItem.description = "An old rusty rapier.";
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 4;
+			newItem.prop3 = VALUE_MAJOR;
 			break;
 		case ITEM_LONGSWORD:
 			newItem.name = "longsword";
-			newItem.adjectives = "shiny";
+			newItem.adjectives = "a shiny";
 			newItem.description = "A shiny longsword. It looks like it was recently polished.";
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 5;
+			newItem.prop3 = VALUE_MAJOR*2;
 			break;
 		case ITEM_BROADSWORD:
 			newItem.name = "broadsword";
-			newItem.adjectives = "weighted";
+			newItem.adjectives = "a weighted-";
 			newItem.description = "A weighted broadsword, designed to maximize the force of a swing \
 without upsetting the balance.";
 			setB(newItem.flags, BIT_WEAPON);
 			newItem.prop1 = 7;
+			newItem.prop3 = VALUE_MAJOR*3;
 			break;
 		case ITEM_2H_SWORD:
 			newItem.name = "sword";
-			newItem.adjectives = "two-handed";
+			newItem.adjectives = "a two-handed";
 			newItem.description = "A massive two-handed sword. Anyone hit by this thing is going to be \
 in some serious pain";
 			setB(newItem.flags, BIT_WEAPON);
-			newItem.prop1 = 9;
+			newItem.prop1 = 8;
+			newItem.prop3 = VALUE_MAJOR*5;
 		break;
 		case ITEM_CLOTH_ROBE:
 			newItem.name = "robe";
-			newItem.adjectives = "padded linen";
+			newItem.adjectives = "a padded linen";
 			newItem.description = "Though a bit regal-looking, this robe provides basic protection against \
 most weapons. It's not gonna stop an arrow - but you get what you pay for.";
 			setB(newItem.flags, BIT_ARMOR);
+			newItem.prop3 = VALUE_MINOR;
 			newItem.prop1 = 1;
 			break;
 		case ITEM_ROTTING_LEATHER:
 			newItem.name = "armor";
-			newItem.adjectives = "rotting leather";
+			newItem.adjectives = "some rotting leather";
 			newItem.description = "You can't tell if this started out as armor, or if it became armor \
 after receiving a nice coat of mold from mother nature. Hopefully it holds together";
 			setB(newItem.flags, BIT_ARMOR);
+			newItem.prop3 = VALUE_MINOR;
 			newItem.prop1 = 2;
 			break;
 		case ITEM_STUDDED_LEATHER:
 			newItem.name = "armor";
-			newItem.adjectives = "studded leather";
+			newItem.adjectives = "some studded leather";
 			newItem.description = "This stuff looks pretty decrepit, but the studs are still intact \
 and the armor smells like it's only mildly been used. Beats nothing.";
 			setB(newItem.flags, BIT_ARMOR);
+			newItem.prop3 = VALUE_MINOR * 5;
 			newItem.prop1 = 3;
 			break;
 		case ITEM_CHAIN_SHIRT:
 			newItem.name = "shirt";
-			newItem.adjectives = "old chain";
+			newItem.adjectives = "an old chain";
 			newItem.description = "This shirt is pretty light for how well it covers- it doesn't restrict \
 your mobility, yet also provides decent protection from most attacks. Not too shabby.";
 			setB(newItem.flags, BIT_ARMOR);
 			newItem.prop1 = 4;
+			newItem.prop3 = VALUE_MAJOR * 2;
 			break;
 		case ITEM_RUSTY_PLATE:
 			newItem.name = "armor";
-			newItem.adjectives = "rusty plate";
+			newItem.adjectives = "some rusty plate";
 			newItem.description = "What is garbage like this doing in a place like this? Though surprising \
 durable, time has not been kind to this rust-bucket - you feel like you might contract lockjaw just from \
 looking at it.";
 			setB(newItem.flags, BIT_ARMOR);
 			newItem.prop1 = 5;
+			newItem.prop3 = VALUE_MAJOR;
 			break;
 		case ITEM_SHINY_PLATE:
 			newItem.name = "armor";
-			newItem.adjectives = "shiny plate";
+			newItem.adjectives = "some shiny plate";
 			newItem.description = "What is fantastic armor like this doing in a place like this? You feel \
 more powerful just looking at it - what kind of monster was able to take someone down in a suit of this? \
 Wearing a trash-can has never been so amazing.";
 			setB(newItem.flags, BIT_ARMOR);
 			newItem.prop1 = 10;
+			newItem.prop3 = VALUE_AWESOME*2;
 			break;
 		default:
 			cout << "createItem(): unknown id (" << id << ")" << endl;
@@ -1951,7 +2349,6 @@ Wearing a trash-can has never been so amazing.";
 void initRooms() {
 	rooms = new game_room[GAME_ROOM_SIZE];
 
-	// neutral rooms
 	game_room *r = &rooms[FOREST];
 	r->name = "Running through the forest";
 	r->description = "In the distance, you hear a faint siren echoing through the trees. \
@@ -1964,6 +2361,12 @@ faster than the troll's bellies.";
 seem to unfurl towards you like outstretched fingers, frantically clawing at your face and clothes - much like \
 your pursuers, if they catch you. One thought dominates all, \'Don't stop: just keep moving.\'";
 	setB(r->flags, ROOM_NEUTRAL | ROOM_RUNNING);
+	r->items.push_back(createItem(ITEM_BLUE_KEY));
+	r->items.push_back(createItem(ITEM_RED_KEY));
+	r->items.push_back(createItem(ITEM_GREEN_KEY));
+	r->items.push_back(createItem(ITEM_YELLOW_KEY));
+
+
 
 	r = &rooms[FOREST_2];
 	r->transition = "As you bustle through the dark forest, it dawns on you that you no longer \
@@ -1997,27 +2400,28 @@ this is what you were born to do?";
 	r->prop1 = ENTRY;
 
 	r = &rooms[ENTRY];
-	r->description = "You are now in front of a large metal door. There's a hole you can crawl \
-through";
-	r->transition = "You crawl down into the hole and begin shimmying through. Loose dirt flies up in \
-your hair and on your face and clothes(not that you weren't already filthy). With significant labor, \
-you squeeze through";
+	r->name = "Across The Chasm, Entry";
+	r->description = "This room is shattered. A huge chasm shears the chamber in half, and the ground and ceilings \
+are tilted away from it. It's as though the room was gripped in two enormous hands and broken like a loaf of bread. \
+Someone(or something?) has torn a tall stone door from its hinges - would have been nice if they had made a bridge \
+out of it. What is clear is that whatever did that must have possessed tremendous strength because the door is huge, \
+and the enormous hinges look bent and mangled. The entry itself is caved in, with only a small burrow showing itself. \
+There's also a massive granite door(or is it a wall?), though you doubt a human could open it without some kind of magical \
+assistance.";
 	setB(r->flags, ROOM_NOEXIT);
 	r->items.push_back(createItem(ITEM_SECRET_ENT));
 	r->items.push_back(createItem(ITEM_BURROW_ENT));
 	r->items.push_back(createItem(ITEM_GOLD_KEY));
-	r->items.push_back(createItem(ITEM_RANDOM_TREASURE_BOX));
 
 	r = &rooms[CORRIDOR];
 	r->name = "Corridor, Chamber";
-	"You scan the pit and see an opening on the wall.You approach it.As you \
-approach the opening you notice that torches line the walls lighting the room you've just walked into. You open the door and head down the dimly lit passage. After a short while, the passage opens into a room.";
-	r->description = "It's dim, but you can see\
-that there are five doors on the wall opposite you. As you cautiously walk closer to the doors, you hear a loud rumble, as if \
-the earth itself is being split in two. Without warning the entrance behind you caves in. You're trapped. Your only choice is to\
-go through one of the doors ahead of you. As you move closer, you can make out more details about the doors. On the left there are\
+	r->description = "It's dim, but you can see that there are five doors on the wall opposite you. Old tapestries decorate the walls \
+of this once-vibrant room - although they may once have been brilliant in hue, they now hang in graying tatters. Despite the damage of \
+time and neglect, you can perceive once-grand images of wizards' towers, magical beasts, and symbols of spellcasting. The tapestry that \
+is in the best condition bulges out weirdly, as though someone stands behind it (an armless statue of a female human spellcaster). Your \
+only choice is to go through one of the doors ahead of you. As you move closer, you can make out more details about the doors. On the left there are \
 two doors, one red and one green. On the right there are two more, one blue and one yellow. In the center there is a massive, ornately\
-decorated door that appears to be made of solid gold.";
+decorated door that shines with a golden hue.";
 	setB(r->flags, ROOM_NEUTRAL | ROOM_NOEXIT);
 	r->items.push_back(createItem(ITEM_BLUE_DOOR));
 	r->items.push_back(createItem(ITEM_GREEN_DOOR));
@@ -2025,32 +2429,34 @@ decorated door that appears to be made of solid gold.";
 	r->items.push_back(createItem(ITEM_YELLOW_DOOR));
 	r->items.push_back(createItem(ITEM_GOLD_DOOR));
 	r->items.push_back(createItem(ITEM_BURROW_EXIT));
-	r->items.push_back(createItem(ITEM_RANDOM_TREASURE_BOX));
-
-	//If this description needs to be less detailed in order to reuse the room later in the program, we can go with something like, You enter
-	//the main room of the cave system. Opposite you are 5 doors, one red, one green, one blue and one yellow. In the center is a massive
-	//golden door. Which door will you go through?
 
 	r = &rooms[RED_EXIT];
 	r->name = "Red Door, Narrow Passage";
 	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-	setB(r->flags, ROOM_NEUTRAL);
-	// transition text: ejected back into corridor
+	r->transition = "As you attempt to move forward, the ground begins to shake, and the floor below you gives way. You slowly \
+descend as the floor glides downwards, until you finally reach the bottom. The walls behind you begin to push outward, forcing \
+you back into a familiar scene...";
 
 	r = &rooms[GREEN_EXIT];
 	r->name = "Green Door, Narrow Passage";
 	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-	setB(r->flags, ROOM_NEUTRAL);
+	r->transition = "As you attempt to move forward, the ground begins to shake, and the floor below you gives way. You slowly \
+descend as the floor glides downwards, until you finally reach the bottom. The walls behind you begin to push outward, forcing \
+you back into a familiar scene...";
 
 	r = &rooms[BLUE_EXIT];
 	r->name = "Blue Door, Narrow Passage";
 	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-	setB(r->flags, ROOM_NEUTRAL);
+	r->transition = "As you attempt to move forward, the ground begins to shake, and the floor below you gives way. You slowly \
+descend as the floor glides downwards, until you finally reach the bottom. The walls behind you begin to push outward, forcing \
+you back into a familiar scene...";
 
 	r = &rooms[YELLOW_EXIT];
 	r->name = "Yellow Door, Narrow Passage";
 	r->description = "You're meandering through what seems an endless passage. Light is dim, and the only direction is forward.";
-	setB(r->flags, ROOM_NEUTRAL);
+	r->transition = "As you attempt to move forward, the ground begins to shake, and the floor below you gives way. You slowly \
+descend as the floor glides downwards, until you finally reach the bottom. The walls behind you begin to push outward, forcing \
+you back into a familiar scene...";
 
 	// populated rooms - TODO
 	r = &rooms[RED_1];
@@ -2061,22 +2467,23 @@ lit by a few torches on the wall.";
 	r = &rooms[RED_2];
 	r->name = "Small Pantry";
 	r->description = "You enter the room, and you can tell that it is, or was, a pantry. There are cupboards along the walls and what\
-	appears to be several preparation tables in the center of the room.";
+appears to be several preparation tables in the center of the room.";
 
 	r = &rooms[RED_3];
 	r->name = "Large Sleeping Quarters";
 	r->description = "When you enter this room you see several rows of bunk beds that stretch off into the distance, fading into the \
-	dark. As far as you can tell, there is nothing, or no one, sleeping in the beds.";
+dark. As far as you can tell, there is nothing, or no one, sleeping in the beds.";
 
 	r = &rooms[RED_4];
 	r->name = "Medium Library";
 	r->description = "As you cross the threshhold of this room, you see rows of bookcases all filled to the brim with books. This is \
-	one of the brightest rooms you've been in so far, thanks to the chandeliers hanging from the ceiling.";
+one of the brightest rooms you've been in so far, thanks to the chandeliers hanging from the ceiling.";
 
 	r = &rooms[RED_5];
 	r->name = "Large Forge";
 	r->description = "As you enter the room, the first thing you notice is that it is very hot. You see the forge and realize that must\
-	be where the heat is coming from. There are workbenches all over the room with tools scattered haphazardly across them.";
+be where the heat is coming from. There are workbenches all over the room with tools scattered haphazardly across them.";
+	r->items.push_back(createItem(ITEM_RED_CHEST));
 
 	r = &rooms[GREEN_1];
 	r->name = "Small Storage Room";
@@ -2084,80 +2491,87 @@ lit by a few torches on the wall.";
 
 	r = &rooms[GREEN_2];
 	r->name = "Medium Kitchen";
-	r->description = "This room has several prep tables as well as a sink to wash dishes, and several ovens. You think of the last meal \
-	that you had. Beef stew. Your stomach rumbles and you're reminded of your hunger.";
+	r->description = "This room has several prep tables as well as a sink to wash dishes, and several ovens, which causes you to reminisc on \
+the last meal you enjoyed. Your stomach rumbles, and you're reminded of your hunger.";
 
 	r = &rooms[GREEN_3];
 	r->name = "Medium Distillery";
 	r->description = "As you enter the room, you see the remnants of several stills along the edges of the room. In the center is a table\
-	with several empty bottles scattered across the top.";
+with several empty bottles scattered across the top.";
 
 	r = &rooms[GREEN_4];
 	rooms[GREEN_4].name = "Large Training Room";
-	rooms[GREEN_4].description = "Inside this room you see racks of practice weapons as well as several training dummies, two archery targets and a \
-	first aid kit.";
+	rooms[GREEN_4].description = "Inside this room you see racks of splintered old practice weapons as well as several training dummies, \
+two archery targets and some misc scraps and tatters of old broken armor.";
 
 	r = &rooms[GREEN_5];
-	rooms[GREEN_5].name = "Large Mage Workshop";
+	rooms[GREEN_5].name = "Mage Workshop";
 	rooms[GREEN_5].description = "As you enter this room you see several arcane tables set up. One of the tables has several crystals on it. One of \
-	the crystals is glowing faintly, but you decide it's best if you leave it alone.?";
+the crystals is glowing faintly, but you decide it's best if you leave it alone.?";
+	r->items.push_back(createItem(ITEM_GREEN_CHEST));
 
 	r = &rooms[BLUE_1];
 	rooms[BLUE_1].name = "Medium Indoor Garden";
 	rooms[BLUE_1].description = "As you come into this room, the first thing that hits you is the smell. There is the overwhelming smell of manure. As\
-	you cover your nose and mouth to keep from gagging, you see that all manner of moss, lichens, and mushrooms are growing in planter boxes filled \
-	with what you can only guess is manure.";
+you cover your nose and mouth to keep from gagging, you see that all manner of moss, lichens, and mushrooms are growing in planter boxes filled \
+with what you can only guess is manure.";
 
 	r = &rooms[BLUE_2];
 	rooms[BLUE_2].name = "Large Library";
 	rooms[BLUE_2].description = "In this room there are hundreds of bookcases teeming with books. As you glance around you see several that appear to be\
-	bound in solid gold. They are beautiful but you decide to keep moving.";
+bound in solid gold. They are beautiful but you decide to keep moving.";
 
 	r = &rooms[BLUE_3];
 	rooms[BLUE_3].name = "Burnt Mage Workshop";
 	rooms[BLUE_3].description = "Once in this room you can see that it is a mage's workshop. Or it was. It seems as though something went horribly wrong\
-	when it was last used. Everything inside is burnt to a crisp, and in the center of the room are the splintered remains of an arcane table.";
+when it was last used. Everything inside is burnt to a crisp, and in the center of the room are the splintered remains of an arcane table.";
 
 	r = &rooms[BLUE_4];
 	rooms[BLUE_4].name = "Large Pantry";
-	rooms[BLUE_4].description = "You emerge into a large pantry with al sorts of dried meats and cheeses hanging from pegs in the rafters. Despite your \
-	hunger, you know that you should not stop and eat.";
+	rooms[BLUE_4].description = "There's a hiss as you open this door, and you smell a sour odor, like something rotten or fermented. Inside you see a \
+small room lined with dusty shelves, crates, and barrels. It looks like someone once used this place as a larder, but it has been a long time since \
+anyone came to retrieve food from it.";
 
 	r = &rooms[BLUE_5];
 	rooms[BLUE_5].name = "Large Archery Range";
-	rooms[BLUE_5].description = "Upon entering this room, you see that it is a large indoor archery range. There is a row of archery targets that stretches\
-	off into the depths of the darkness.";
+	rooms[BLUE_5].description = "Upon entering this room, you happen upon what appears to be an old large indoor archery range. There is a row of archery \
+targets that stretches off into the depths of the darkness.";
+	r->items.push_back(createItem(ITEM_BLUE_CHEST));
 
 	r = &rooms[YELLOW_1];
 	rooms[YELLOW_1].name = "Large Tavern";
 	rooms[YELLOW_1].description = "You come into this room and see that it is a tavern. There are several tables set up, with chairs, as well as a row of bar\
-	stools set up along the bar. You see the tap handles behind the bar and you wish that you had the time to enjoy a pint.";
+stools set up along the bar. You see the tap handles behind the bar and you wish that you had the time to enjoy a pint.";
 
 	r = &rooms[YELLOW_2];
 	rooms[YELLOW_2].name = "Large Armory";
-	rooms[YELLOW_2].description = "Once you are in this room, you see racks of weapons lined up in the room. All manner of weapons are stored in the racks,\
-	swords, maces, warhammers, spears, and many more. In the center of the room is a row of many workbenches littered with an assortment of hammers, tongs\
-	whetstones and other various tools.";
+	rooms[YELLOW_2].description = "In this room, you see empty weapon racks lined up against the walls collecting dust. All manner of weapons would be stored in \
+the racks - swords, maces, warhammers, spears, and many more, though the room seems to have long since been looted. In the center of the room is a row of many \
+workbenches littered with an assortment of anvils, whetstones and other various metallurgic tools.";
 
 	r = &rooms[YELLOW_3];
-	rooms[YELLOW_3].name = "Large Dining Hall";
-	rooms[YELLOW_3].description = "In this room you see rows of tables lined up stretching into the distance. There are plates at the tables and a candleabra\
-	on each table.";
+	rooms[YELLOW_3].name = "Abandoned Prison";
+	rooms[YELLOW_3].description = "The manacles set into the walls of this room give you the distinct impression that it was used as a prison and torture \
+chamber, although you can see no evidence of torture devices. One particularly large set of manacles - big enough for an ogre - have been broken open.";
 
 	r = &rooms[YELLOW_4];
 	r->name = "Medium Latrine";
-	r->description = "You enter this room and see that there are several stalls with toilets on one side, and on the other there are tubs lined up\
-	for bathing. You are surprised that it doesn't smell worse than it does.";
+	r->description = "You enter this room and see that there are several stalls with latrines on one side, and on the other there are tubs lined up\
+for bathing. You are surprised that it doesn't smell worse than it does.";
 
 	r = &rooms[YELLOW_5];
 	r->name = "Large Stable";
-	r->description = "Upon entering this room, you realize you've stumbled across a stable. There are several horses in the stalls one side of the\
-	room and on the other there are several large bales of hay. You are thankful for the signs of life the horses bring you.";
+	r->description = "Upon entering this room, you realize you've stumbled across an old abandoned stable. There are several bridles in the stalls \
+all covered in dust, leading you to believe that it's current tenants may not be using it as such.";
+	r->items.push_back(createItem(ITEM_YELLOW_CHEST));
 	
-
 	r = &rooms[BOSS_ENTRY];
-	r->name = "Large Golden Door";
-	r->description = "";
+	r->name = "Entry Hall, Throne Room";
+	r->description = " A dozen crumbling statues stand or kneel in this room, and each one lacks a head and stands in a posture of action or defense, \
+all garbed for battle. It's difficult to tell for sure without their heads, but two appear to be trolls, one might be an dwarf, six appear human, and \
+the rest look like they might be orcs.";
+	setB(r->flags, ROOM_NEUTRAL);
+	r->monster = createMonster(MONSTER_TROLL_GUARD);
 
 	r = &rooms[BOSS];
 	r->name = "Large Throne Room";
@@ -2180,14 +2594,15 @@ the caves all night. You breathe a sigh of relief as you realize that it's over 
 	\n the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of ";
 	setB(r->flags, ROOM_NEUTRAL | ROOM_NOEXIT);
 	r->items.push_back(createItem(ITEM_SECRET_EXIT));
-	// populated rooms - TODO
+	r->items.push_back(createItem(ITEM_BIG_TREASURE_CHEST));
 
 	// randomly generate objects and monsters
 	for (int i = 0; i < GAME_ROOM_SIZE; i++) {
 		game_room *r = &rooms[i];
 		game_monster *m = &r->monster;
 		game_trap *t = &rooms[i].trap;
-		if (!checkB(r->flags, ROOM_NEUTRAL)) {
+		// check for neutral room. neutral = no spawn, no traps
+		if (!isNeutral(r)) {
 			t->isArmed = rand() % 2;
 			if (rand() % 4 != 0) {
 				*m = createMonster(MONSTER_RANDOM);
