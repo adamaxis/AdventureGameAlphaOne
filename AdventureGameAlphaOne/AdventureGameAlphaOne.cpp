@@ -9,7 +9,6 @@
  100% beatable - Daniel D.
  */
 
-#include "pch.h"
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -1681,7 +1680,6 @@ vector<string> getInput() {
 	getline(cin, input);
 	cin.seekg(ios::end);
 	cin.clear();
-	//cin.ignore(INT_MAX, '\0');
 	return delimit(input, ' ');
 };
 
@@ -2361,11 +2359,6 @@ faster than the troll's bellies.";
 seem to unfurl towards you like outstretched fingers, frantically clawing at your face and clothes - much like \
 your pursuers, if they catch you. One thought dominates all, \'Don't stop: just keep moving.\'";
 	setB(r->flags, ROOM_NEUTRAL | ROOM_RUNNING);
-	r->items.push_back(createItem(ITEM_BLUE_KEY));
-	r->items.push_back(createItem(ITEM_RED_KEY));
-	r->items.push_back(createItem(ITEM_GREEN_KEY));
-	r->items.push_back(createItem(ITEM_YELLOW_KEY));
-
 
 
 	r = &rooms[FOREST_2];
@@ -2411,7 +2404,6 @@ assistance.";
 	setB(r->flags, ROOM_NOEXIT);
 	r->items.push_back(createItem(ITEM_SECRET_ENT));
 	r->items.push_back(createItem(ITEM_BURROW_ENT));
-	r->items.push_back(createItem(ITEM_GOLD_KEY));
 
 	r = &rooms[CORRIDOR];
 	r->name = "Corridor, Chamber";
@@ -2590,11 +2582,15 @@ the caves all night. You breathe a sigh of relief as you realize that it's over 
 
 	r = &rooms[SECRET_CHAMBER];
 	r->name = "Hidden Chamber";
-	r->description = "As you exit the caves, the sunlight hits your face causing you to squint in the brightness momentarily. You realize that you've been in\
-	\n the caves all night. You breathe a sigh of relief as you realize that it's over and you wander off into the forest in search of ";
+	r->description = "The first thing you notice upon entering this chamber is the relative tranquility - there's a different vibe in the air here. \
+Large and unadorned, this room seems to have been a vault of some kind, though to hold remains unclear. In the darkness, you make can make out faint \
+glimmering.";
 	setB(r->flags, ROOM_NEUTRAL | ROOM_NOEXIT);
 	r->items.push_back(createItem(ITEM_SECRET_EXIT));
 	r->items.push_back(createItem(ITEM_BIG_TREASURE_CHEST));
+	r->items.push_back(createItem(ITEM_GOLD_PILE));
+	r->items.push_back(createItem(ITEM_GOLD_PILE));
+	r->items.push_back(createItem(ITEM_GOLD_PILE));
 
 	// randomly generate objects and monsters
 	for (int i = 0; i < GAME_ROOM_SIZE; i++) {
