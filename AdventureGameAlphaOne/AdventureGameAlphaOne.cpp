@@ -2361,7 +2361,7 @@ your pursuers, if they catch you. One thought dominates all, \'Don't stop: just 
 	setB(r->flags, ROOM_NEUTRAL | ROOM_RUNNING);
 
 
-	r = &rooms[FOREST_2];
+	r = &rooms[FOREST_2]; 
 	r->transition = "As you bustle through the dark forest, it dawns on you that you no longer \
 have any idea where you are - you've never been this deep before, let alone in complete darkness. That doesn't \
 stop your running though - trolls are much scarier than darkness. Suddenly, with one errant step, the ground \
