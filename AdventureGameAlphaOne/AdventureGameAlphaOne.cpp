@@ -2587,7 +2587,7 @@ Large and unadorned, this room seems to have been a vault of some kind, though t
 glimmering.";
 	setB(r->flags, ROOM_NEUTRAL | ROOM_NOEXIT);
 	r->items.push_back(createItem(ITEM_SECRET_EXIT));
-	r->items.push_back(createItem(ITEM_BIG_TREASURE_CHEST));
+	r->items.push_back(createItem(ITEM_BIG_TREASURE_CHEST)); 
 	r->items.push_back(createItem(ITEM_GOLD_PILE));
 	r->items.push_back(createItem(ITEM_GOLD_PILE));
 	r->items.push_back(createItem(ITEM_GOLD_PILE));
