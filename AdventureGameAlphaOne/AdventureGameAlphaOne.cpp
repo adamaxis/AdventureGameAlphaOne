@@ -208,6 +208,60 @@ enum game_items {				// all negative entries are natural weapons/armor
 };
 
 
+
+// game_item structure - for items in the game
+struct game_object {
+	string s1, s2, s3, s4, s5;
+	int i1, i2, i3, i4, i5;
+	long l1, l2, l3, l4, l5;
+	string description;
+	int type;
+	int kills;
+	long flags, prop1, prop2, prop3;
+	string sprop1;
+	int id;
+
+	// flags reference
+	// isExit - prop1 contains exit ID, sporp1 contains exit text
+	// isLocked - prop2 contains key item ID
+	// isArmor - prop1 contains armor def
+	// isWeapon - prop1 contains weapon dmg
+	// isContainer - prop1 contains containers[] array index
+	// isGold - prop3 contains value
+
+	// constructor
+	game_object() {
+		// give each item a unique id
+		id = rand();
+
+		// default values
+		clear();
+	}
+
+	// clear() - clears all object data
+	void clear() {
+		name = adjectives = description = sprop1 = "";
+		type = ITEM_NONE;
+		flags = prop1 = prop2 = prop3 = 0;
+	}
+
+	// copy(item) - copies the provided item data to this object(including id)
+	void copy(game_item c) {
+		name = c.name;
+		adjectives = c.adjectives;
+		description = c.description;
+		type = c.type;
+		flags = c.flags;
+		prop1 = c.prop1;
+		prop2 = c.prop2;
+		prop3 = c.prop3;
+		sprop1 = c.sprop1;
+		id = c.id;
+	}
+
+};
+
+
 // game_item structure - for items in the game
 struct game_item {
 	string name;
